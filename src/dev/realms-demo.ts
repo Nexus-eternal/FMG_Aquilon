@@ -13,6 +13,7 @@ import type { PackedGraph } from "@/types/PackedGraph";
 
 const REALM_ID = "sky";
 const SURFACE_BACKDROP_ID = "demoSurfaceBackdrop";
+const SURFACE_ATMOSPHERE_ID = "demoSurfaceAtmosphere";
 const SKY_EDITOR_CLOUDS_ID = "demoSkyEditorClouds";
 const REALM_LAYER_IDS = ["demoSkyClouds", "demoSkyTerrain", "demoSkyRoutes", "demoSkyMarkers"] as const;
 const SNAPSHOT_PARTS = {
@@ -57,6 +58,7 @@ let cloudDensity = 0.85;
 let groundVisibility = 0.65;
 let realmCloudLayer: Layer;
 let editorCloudLayer: Layer;
+let surfaceAtmosphereLayer: Layer;
 const snapshots = new Map<string, string>();
 
 export function installRealmsDemo(): void {
@@ -82,6 +84,16 @@ export function installRealmsDemo(): void {
     },
     { before: "landmass" }
   );
+  surfaceAtmosphereLayer = Layers.register(
+    {
+      id: SURFACE_ATMOSPHERE_ID,
+      parent: "viewbox",
+      permanent: true,
+      keepContent: true,
+      draw: drawSurfaceAtmosphere
+    },
+    { before: "rulers" }
+  );
   realmCloudLayer = Layers.register(
     {
       id: "demoSkyClouds",
@@ -99,7 +111,7 @@ export function installRealmsDemo(): void {
     id: REALM_ID,
     title: "Sky Realm (generated)",
     visible: true,
-    opacity: 0.6,
+    opacity: 1,
     locked: false,
     layerIds: [...REALM_LAYER_IDS]
   });
@@ -220,7 +232,11 @@ function updateSurfaceBackdrop(): void {
     .filter(layer => Layers.isOn(layer.id))
     .filter(layer => {
       const id = String(layer.id);
-      return id !== SURFACE_BACKDROP_ID && !(REALM_LAYER_IDS as readonly string[]).includes(id);
+      return (
+        id !== SURFACE_BACKDROP_ID &&
+        id !== SURFACE_ATMOSPHERE_ID &&
+        !(REALM_LAYER_IDS as readonly string[]).includes(id)
+      );
     })
     .map(layer => layer.elementId);
   snapshots.set(SURFACE_BACKDROP_ID, createSnapshot(sourceIds));
@@ -295,7 +311,6 @@ function drawClouds(layer: Layer): void {
 
   const { width, height } = options.map.graph;
   const seed = cloudSeed(options.map.seed);
-  const hazeOpacity = (1 - groundVisibility) * 0.65;
   const cloudOffset = -0.78 + cloudDensity * 0.38;
   const cloudOpacity = 0.45 + cloudDensity * 0.5;
   const svg = /* html */ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
@@ -311,7 +326,7 @@ function drawClouds(layer: Layer): void {
         <feComposite in="cloud-colour" in2="blurred-clouds" operator="in" />
       </filter>
     </defs>
-    <rect width="${width}" height="${height}" fill="#b9d3eb" fill-opacity="${hazeOpacity.toFixed(3)}" />
+    ${editorClouds ? `<rect width="${width}" height="${height}" fill="#b9d3eb" fill-opacity="${(1 - groundVisibility).toFixed(3)}" />` : ""}
     <rect width="${width}" height="${height}" fill="transparent" filter="url(#cloud-noise)" />
   </svg>`;
   const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
@@ -320,6 +335,18 @@ function drawClouds(layer: Layer): void {
   image.setAttribute("height", String(height));
   image.setAttribute("pointer-events", "none");
   layer.getEl().replaceChildren(image);
+}
+
+function drawSurfaceAtmosphere(layer: Layer): void {
+  if (activeWorld !== "surface") return void layer.getEl().replaceChildren();
+
+  const veil = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  veil.setAttribute("width", String(options.map.graph.width));
+  veil.setAttribute("height", String(options.map.graph.height));
+  veil.setAttribute("fill", "#b9d3eb");
+  veil.setAttribute("fill-opacity", String(1 - groundVisibility));
+  veil.setAttribute("pointer-events", "none");
+  layer.getEl().replaceChildren(veil);
 }
 
 function cloudSeed(value: string): number {
@@ -391,6 +418,7 @@ function bindAtmosphereSlider(id: string, update: (value: number) => void): void
 function redrawClouds(): void {
   if (realmCloudLayer) drawClouds(realmCloudLayer);
   if (editorCloudLayer) drawClouds(editorCloudLayer);
+  if (surfaceAtmosphereLayer) drawSurfaceAtmosphere(surfaceAtmosphereLayer);
 }
 
 function setDemoStatus(message: string): void {
