@@ -64,9 +64,28 @@ export interface LayerRegistrationOptions<Id extends string = string> {
   after?: Id;
 }
 
+export interface LayerGroupParams<Id extends string = string> {
+  id: string; // canonical identity, persisted in the .map file
+  title: string;
+  layers: Id[];
+  visible?: boolean;
+  opacity?: number;
+  locked?: boolean;
+  collapsed?: boolean;
+}
+
+export interface LayerGroupState {
+  id: string;
+  visible: boolean;
+  opacity: number;
+  locked: boolean;
+  collapsed: boolean;
+}
+
 export interface LayersState {
   order: string[];
   active: string[];
+  groups?: LayerGroupState[];
 }
 
 export class Layer<Id extends string = string> {
@@ -88,8 +107,37 @@ export class Layer<Id extends string = string> {
   }
 }
 
+export class LayerGroup<Id extends string = string> {
+  readonly id: string;
+  readonly title: string;
+  readonly layerIds: Id[];
+  visible: boolean;
+  opacity: number;
+  locked: boolean;
+  collapsed: boolean;
+
+  constructor(params: LayerGroupParams<Id>) {
+    this.id = params.id;
+    this.title = params.title;
+    this.layerIds = [...params.layers];
+    this.visible = params.visible ?? true;
+    this.opacity = normalizeOpacity(params.opacity ?? 1);
+    this.locked = params.locked ?? false;
+    this.collapsed = params.collapsed ?? false;
+  }
+
+  get elementId(): string {
+    return `layer-group-${this.id}`;
+  }
+
+  getEl(): SVGGElement {
+    return ensureEl<SVGGElement>(this.elementId);
+  }
+}
+
 export class LayersRegistry<Id extends string = string> {
   private active = new Set<string>();
+  private groups: LayerGroup<Id>[] = [];
   private listeners = new Set<() => void>();
 
   constructor(private layers: Layer<Id>[]) {
@@ -99,13 +147,13 @@ export class LayersRegistry<Id extends string = string> {
   /** create missing layer groups, order them by registration order and apply the current state */
   init(): void {
     for (const layer of this.layers) {
-      const { parent, attrs } = layer.params;
+      const { attrs } = layer.params;
 
       let group = findEl<SVGGElement>(layer.elementId);
       if (!group) group = createEl<SVGGElement>("g", layer.elementId);
       group.dataset.layer = layer.id; // styles address layers by data-layer, not element id
       for (const [name, value] of Object.entries(attrs ?? {})) group.setAttribute(name, value);
-      ensureEl(parent).append(group);
+      ensureEl(layer.parent).append(group); // attach new nodes so the ordering pass can resolve them by id
 
       for (const { id, tag, attrs } of layer.children) {
         let child = group.querySelector<SVGElement>(`#${id}`);
@@ -118,10 +166,37 @@ export class LayersRegistry<Id extends string = string> {
 
       this.setVisible(group, this.active.has(layer.id));
     }
+
+    for (const parentId of ["viewbox", "map"] as const) {
+      const parent = ensureEl(parentId);
+      const appendedGroups = new Set<string>();
+
+      for (const layer of this.layers.filter(layer => layer.parent === parentId)) {
+        const layerGroup = this.getGroupForLayer(layer.id);
+        if (!layerGroup) {
+          parent.append(layer.getEl());
+          continue;
+        }
+
+        if (!appendedGroups.has(layerGroup.id)) {
+          let element = findEl<SVGGElement>(layerGroup.elementId);
+          if (!element) element = createEl<SVGGElement>("g", layerGroup.elementId);
+          element.dataset.layerGroup = layerGroup.id;
+          parent.append(element);
+          this.applyGroupPresentation(layerGroup);
+          appendedGroups.add(layerGroup.id);
+        }
+        layerGroup.getEl().append(layer.getEl());
+      }
+    }
   }
 
   get all(): readonly Layer<Id>[] {
     return this.layers;
+  }
+
+  get allGroups(): readonly LayerGroup<Id>[] {
+    return this.groups;
   }
 
   has(id: string): id is Id {
@@ -132,6 +207,89 @@ export class LayersRegistry<Id extends string = string> {
     const layer = this.layers.find(layer => layer.id === id);
     if (!layer) throw new Error(`Layer ${id} is not registered`);
     return layer;
+  }
+
+  hasGroup(id: string): boolean {
+    return this.groups.some(group => group.id === id);
+  }
+
+  getGroup(id: string): LayerGroup<Id> {
+    const group = this.groups.find(group => group.id === id);
+    if (!group) throw new Error(`Layer group ${id} is not registered`);
+    return group;
+  }
+
+  getGroupForLayer(id: Id): LayerGroup<Id> | undefined {
+    return this.groups.find(group => group.layerIds.includes(id));
+  }
+
+  createGroup(params: LayerGroupParams<Id>): LayerGroup<Id> {
+    if (this.hasGroup(params.id)) throw new Error(`Layer group ${params.id} is already registered`);
+    if (!params.layers.length) throw new Error(`Layer group ${params.id} must contain at least one layer`);
+
+    const members = params.layers.map(id => this.get(id));
+    if (new Set(params.layers).size !== params.layers.length) {
+      throw new Error(`Layer group ${params.id} contains duplicate layers`);
+    }
+    if (members.some(layer => layer.parent !== members[0].parent)) {
+      throw new Error(`All layers in group ${params.id} must have the same parent`);
+    }
+    if (members.some(layer => this.getGroupForLayer(layer.id))) {
+      throw new Error(`A layer in group ${params.id} already belongs to another group`);
+    }
+
+    const memberIndexes = members.map(layer => this.layers.indexOf(layer)).sort((a, b) => a - b);
+    if (memberIndexes.some((index, position) => position > 0 && index !== memberIndexes[position - 1] + 1)) {
+      throw new Error(`Layers in group ${params.id} must be contiguous`);
+    }
+
+    const group = new LayerGroup(params);
+    this.groups.push(group);
+    this.init();
+    this.emit();
+    return group;
+  }
+
+  removeGroup(id: string): boolean {
+    const index = this.groups.findIndex(group => group.id === id);
+    if (index === -1) return false;
+
+    const [group] = this.groups.splice(index, 1);
+    this.init(); // unwrap the layer elements before dropping the wrapper
+    findEl(group.elementId)?.remove();
+    this.emit();
+    return true;
+  }
+
+  setGroupVisibility(id: string, visible: boolean): void {
+    const group = this.getGroup(id);
+    if (group.visible === visible) return;
+    group.visible = visible;
+    this.applyGroupPresentation(group);
+    this.emit();
+  }
+
+  setGroupOpacity(id: string, opacity: number): void {
+    const group = this.getGroup(id);
+    const normalized = normalizeOpacity(opacity);
+    if (group.opacity === normalized) return;
+    group.opacity = normalized;
+    this.applyGroupPresentation(group);
+    this.emit();
+  }
+
+  setGroupLocked(id: string, locked: boolean): void {
+    const group = this.getGroup(id);
+    if (group.locked === locked) return;
+    group.locked = locked;
+    this.emit();
+  }
+
+  setGroupCollapsed(id: string, collapsed: boolean): void {
+    const group = this.getGroup(id);
+    if (group.collapsed === collapsed) return;
+    group.collapsed = collapsed;
+    this.emit();
   }
 
   register<NewId extends string>(
@@ -149,8 +307,12 @@ export class LayersRegistry<Id extends string = string> {
 
     const layer = new Layer(params);
     const layers = this.layers as Layer<string>[];
+    const anchorGroup = anchorLayer && this.getGroupForLayer(anchorLayer.id);
+    const anchorGroupIndexes = anchorGroup?.layerIds.map(id => layers.findIndex(candidate => candidate.id === id));
     const index = anchorLayer
-      ? layers.indexOf(anchorLayer) + (after ? 1 : 0)
+      ? after
+        ? Math.max(...(anchorGroupIndexes ?? [layers.indexOf(anchorLayer)])) + 1
+        : Math.min(...(anchorGroupIndexes ?? [layers.indexOf(anchorLayer)]))
       : layers.findLastIndex(candidate => candidate.parent === layer.parent) + 1;
     layers.splice(index, 0, layer);
 
@@ -166,8 +328,19 @@ export class LayersRegistry<Id extends string = string> {
 
     const [layer] = this.layers.splice(index, 1);
     this.active.delete(layer.id);
+    const layerGroup = this.getGroupForLayer(layer.id);
+    let emptyGroupElementId: string | undefined;
+    if (layerGroup) {
+      layerGroup.layerIds.splice(layerGroup.layerIds.indexOf(layer.id), 1);
+      if (!layerGroup.layerIds.length) {
+        emptyGroupElementId = layerGroup.elementId;
+        this.groups.splice(this.groups.indexOf(layerGroup), 1);
+      }
+    }
     layer.params.erase?.(layer);
     findEl(layer.elementId)?.remove();
+    this.init();
+    if (emptyGroupElementId) findEl(emptyGroupElementId)?.remove();
     this.emit();
     return true;
   }
@@ -245,11 +418,23 @@ export class LayersRegistry<Id extends string = string> {
     if (before === id) return; // cannot be moved before itself
     const layer = this.get(id);
     const target = before ? this.get(before) : undefined;
-    this.layers.splice(this.layers.indexOf(layer), 1);
+    const sourceGroup = this.getGroupForLayer(id);
+    const targetGroup = target && this.getGroupForLayer(target.id);
+    if (sourceGroup && sourceGroup === targetGroup) return;
+
+    const moving = sourceGroup ? this.layers.filter(candidate => sourceGroup.layerIds.includes(candidate.id)) : [layer];
+    for (const candidate of moving) this.layers.splice(this.layers.indexOf(candidate), 1);
 
     const isSibling = (other: Layer<Id>) => other.parent === layer.parent;
-    const index = target && isSibling(target) ? this.layers.indexOf(target) : this.layers.findLastIndex(isSibling) + 1;
-    this.layers.splice(index, 0, layer);
+    const targetBlockStart = targetGroup?.layerIds
+      .map(targetId => this.layers.findIndex(candidate => candidate.id === targetId))
+      .filter(index => index !== -1)
+      .sort((a, b) => a - b)[0];
+    const index =
+      target && isSibling(target)
+        ? (targetBlockStart ?? this.layers.indexOf(target))
+        : this.layers.findLastIndex(isSibling) + 1;
+    this.layers.splice(index, 0, ...moving);
 
     this.init();
     this.emit();
@@ -258,12 +443,19 @@ export class LayersRegistry<Id extends string = string> {
   get state(): LayersState {
     return {
       order: this.layers.map(layer => layer.id),
-      active: this.layers.filter(layer => this.active.has(layer.id) && !layer.params.permanent).map(layer => layer.id)
+      active: this.layers.filter(layer => this.active.has(layer.id) && !layer.params.permanent).map(layer => layer.id),
+      groups: this.groups.map(group => ({
+        id: group.id,
+        visible: group.visible,
+        opacity: group.opacity,
+        locked: group.locked,
+        collapsed: group.collapsed
+      }))
     };
   }
 
   /** apply stored state: the content is already in the DOM, so nothing is drawn or erased */
-  restore({ order, active }: LayersState): void {
+  restore({ order, active, groups }: LayersState): void {
     const ranks = new Map<string, number>();
     let previous = -1;
     for (const layer of this.layers) {
@@ -276,6 +468,14 @@ export class LayersRegistry<Id extends string = string> {
     this.active = new Set(
       this.layers.filter(layer => layer.params.permanent || active.includes(layer.id)).map(layer => layer.id)
     );
+    for (const state of groups ?? []) {
+      const group = this.groups.find(group => group.id === state.id);
+      if (!group) continue;
+      group.visible = state.visible;
+      group.opacity = normalizeOpacity(state.opacity);
+      group.locked = state.locked;
+      group.collapsed = state.collapsed;
+    }
     this.init();
     this.emit();
   }
@@ -303,6 +503,13 @@ export class LayersRegistry<Id extends string = string> {
     for (const listener of this.listeners) listener();
   }
 
+  private applyGroupPresentation(group: LayerGroup<Id>): void {
+    const element = group.getEl();
+    this.setVisible(element, group.visible);
+    if (group.opacity === 1) element.removeAttribute("opacity");
+    else element.setAttribute("opacity", String(group.opacity));
+  }
+
   /** default teardown: drop the content, keeping the declared skeleton */
   private eraseContent(layer: Layer<Id>): void {
     const declared = layer.children.map(child => child.id);
@@ -317,6 +524,11 @@ export class LayersRegistry<Id extends string = string> {
     element.style.display = visible ? "" : "none";
     if (!element.getAttribute("style")) element.removeAttribute("style");
   }
+}
+
+function normalizeOpacity(opacity: number): number {
+  if (!Number.isFinite(opacity)) throw new Error("Layer group opacity must be a finite number");
+  return Math.min(1, Math.max(0, opacity));
 }
 
 // this order is the z-order, the init order and the draw order

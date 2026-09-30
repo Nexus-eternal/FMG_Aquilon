@@ -433,6 +433,103 @@ describe("register and unregister", () => {
   });
 });
 
+describe("layer groups", () => {
+  beforeEach(() => {
+    registry(
+      new Layer({ id: "a", element: "a-el", parent: "viewbox", keepContent: true }),
+      new Layer({ id: "b", element: "b-el", parent: "viewbox", keepContent: true }),
+      new Layer({ id: "c", element: "c-el", parent: "viewbox", keepContent: true })
+    );
+  });
+
+  it("wraps contiguous layers in a real svg group without changing their order", () => {
+    const group = Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+
+    expect(group.elementId).toBe("layer-group-realm");
+    expect(groupIds()).toEqual(["layer-group-realm", "c-el"]);
+    expect(groupIds("layer-group-realm")).toEqual(["a-el", "b-el"]);
+    expect(document.getElementById("layer-group-realm")!.dataset.layerGroup).toBe("realm");
+  });
+
+  it("changes group visibility and opacity without changing or erasing member layers", () => {
+    document.getElementById("a-el")!.append(document.createElementNS("http://www.w3.org/2000/svg", "path"));
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+
+    Layers.setGroupVisibility("realm", false);
+    Layers.setGroupOpacity("realm", 0.4);
+
+    const element = document.getElementById("layer-group-realm")!;
+    expect(element.style.display).toBe("none");
+    expect(element.getAttribute("opacity")).toBe("0.4");
+    expect(document.querySelector("#a-el path")).not.toBeNull();
+    expect(Layers.isOn("a")).toBe(false);
+  });
+
+  it("persists presentation state and accepts old state without a groups field", () => {
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    Layers.setGroupVisibility("realm", false);
+    Layers.setGroupOpacity("realm", 0.25);
+    Layers.setGroupLocked("realm", true);
+    Layers.setGroupCollapsed("realm", true);
+    const saved: LayersState = JSON.parse(JSON.stringify(Layers.state));
+
+    Layers.setGroupVisibility("realm", true);
+    Layers.setGroupOpacity("realm", 1);
+    Layers.setGroupLocked("realm", false);
+    Layers.setGroupCollapsed("realm", false);
+    Layers.restore(saved);
+
+    expect(Layers.state.groups).toEqual([
+      { id: "realm", visible: false, opacity: 0.25, locked: true, collapsed: true }
+    ]);
+    Layers.restore({ order: ["a", "b", "c"], active: [] });
+    expect(Layers.getGroup("realm").visible).toBe(false); // old maps do not overwrite group defaults/current state
+  });
+
+  it("moves grouped layers as one z-order block", () => {
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    Layers.move("a");
+
+    expect(Layers.all.map(layer => layer.id)).toEqual(["c", "a", "b"]);
+    expect(groupIds()).toEqual(["c-el", "layer-group-realm"]);
+    expect(groupIds("layer-group-realm")).toEqual(["a-el", "b-el"]);
+  });
+
+  it("registers anchored layers outside a group block", () => {
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    Layers.register({ id: "before", element: "before-el", parent: "viewbox" }, { before: "b" });
+    Layers.register({ id: "after", element: "after-el", parent: "viewbox" }, { after: "a" });
+
+    expect(Layers.all.map(layer => layer.id)).toEqual(["before", "a", "b", "after", "c"]);
+    expect(groupIds()).toEqual(["before-el", "layer-group-realm", "after-el", "c-el"]);
+  });
+
+  it("unwraps a removed group and removes an empty group after unregistering its last layer", () => {
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    expect(Layers.removeGroup("realm")).toBe(true);
+    expect(groupIds()).toEqual(["a-el", "b-el", "c-el"]);
+    expect(document.getElementById("layer-group-realm")).toBeNull();
+
+    Layers.createGroup({ id: "single", title: "Single", layers: ["c"] });
+    Layers.unregister("c");
+    expect(Layers.hasGroup("single")).toBe(false);
+    expect(document.getElementById("layer-group-single")).toBeNull();
+  });
+
+  it("rejects invalid membership", () => {
+    Layers.register({ id: "map-layer", element: "map-layer-el", parent: "map" });
+
+    expect(() => Layers.createGroup({ id: "empty", title: "Empty", layers: [] })).toThrow("at least one");
+    expect(() => Layers.createGroup({ id: "mixed", title: "Mixed", layers: ["a", "map-layer"] })).toThrow(
+      "same parent"
+    );
+    expect(() => Layers.createGroup({ id: "gap", title: "Gap", layers: ["a", "c"] })).toThrow("contiguous");
+
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    expect(() => Layers.createGroup({ id: "other", title: "Other", layers: ["b"] })).toThrow("another group");
+  });
+});
+
 describe("restore", () => {
   const register = (ids = ["a", "b", "c"]) => {
     const draw = vi.fn();
