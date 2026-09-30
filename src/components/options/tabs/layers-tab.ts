@@ -116,7 +116,10 @@ ensureEl("layersContent").innerHTML = TEMPLATE;
 function render(): void {
   ensureEl("mapLayers").replaceChildren(
     ...Layers.all.flatMap(layer => {
-      const button = LAYER_TOGGLES.get(layer.id);
+      const metadata = layer.params.metadata;
+      const button =
+        LAYER_TOGGLES.get(layer.id) ??
+        (metadata && { label: metadata.title, shortcut: metadata.shortcut, hint: metadata.hint });
       if (!button) return [];
 
       const item = document.createElement("li");

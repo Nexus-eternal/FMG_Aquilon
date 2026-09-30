@@ -38,7 +38,13 @@ import { drawFogging } from "@/renderers/overlays/fogging";
 import { TradeAnimation } from "@/renderers/trade-animation";
 import { createEl, ensureEl, findEl } from "@/utils/nodeUtils";
 
-interface LayerParams<Id extends string = string> {
+export interface LayerMetadata {
+  title: string;
+  shortcut?: string;
+  hint?: string;
+}
+
+export interface LayerParams<Id extends string = string> {
   id: Id; // canonical identity, persisted in the .map file
   element?: string; // id of the svg group holding the layer content
   parent: "viewbox" | "map"; // id of the svg element the layer group is appended to
@@ -48,9 +54,15 @@ interface LayerParams<Id extends string = string> {
   keepContent?: boolean; // keep the content in the DOM when the layer is turned off
   draw?: (layer: Layer) => void; // renderer function
   erase?: (layer: Layer) => void; // custom teardown, defaults to erasing the content down to the declared children
+  metadata?: LayerMetadata; // optional UI metadata for dynamically registered layers
 }
 
-type ChildParams = { id: string; tag: string; attrs?: Record<string, string> };
+export type ChildParams = { id: string; tag: string; attrs?: Record<string, string> };
+
+export interface LayerRegistrationOptions<Id extends string = string> {
+  before?: Id;
+  after?: Id;
+}
 
 export interface LayersState {
   order: string[];
@@ -77,7 +89,7 @@ export class Layer<Id extends string = string> {
 }
 
 export class LayersRegistry<Id extends string = string> {
-  private active = new Set<Id>();
+  private active = new Set<string>();
   private listeners = new Set<() => void>();
 
   constructor(private layers: Layer<Id>[]) {
@@ -120,6 +132,44 @@ export class LayersRegistry<Id extends string = string> {
     const layer = this.layers.find(layer => layer.id === id);
     if (!layer) throw new Error(`Layer ${id} is not registered`);
     return layer;
+  }
+
+  register<NewId extends string>(
+    params: LayerParams<NewId>,
+    { before, after }: LayerRegistrationOptions<Id> = {}
+  ): Layer<NewId> {
+    if (this.has(params.id)) throw new Error(`Layer ${params.id} is already registered`);
+    if (before && after) throw new Error("Layer registration accepts either before or after, not both");
+
+    const anchor = before ?? after;
+    const anchorLayer = anchor ? this.get(anchor) : undefined;
+    if (anchorLayer && anchorLayer.parent !== params.parent) {
+      throw new Error(`Layer ${params.id} and anchor ${anchor} must have the same parent`);
+    }
+
+    const layer = new Layer(params);
+    const layers = this.layers as Layer<string>[];
+    const index = anchorLayer
+      ? layers.indexOf(anchorLayer) + (after ? 1 : 0)
+      : layers.findLastIndex(candidate => candidate.parent === layer.parent) + 1;
+    layers.splice(index, 0, layer);
+
+    if (params.permanent) this.active.add(params.id);
+    this.init();
+    this.emit();
+    return layer;
+  }
+
+  unregister(id: string): boolean {
+    const index = this.layers.findIndex(layer => layer.id === id);
+    if (index === -1) return false;
+
+    const [layer] = this.layers.splice(index, 1);
+    this.active.delete(layer.id);
+    layer.params.erase?.(layer);
+    findEl(layer.elementId)?.remove();
+    this.emit();
+    return true;
   }
 
   isOn(id: Id): boolean {

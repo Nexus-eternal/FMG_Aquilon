@@ -388,6 +388,51 @@ describe("move", () => {
   });
 });
 
+describe("register and unregister", () => {
+  beforeEach(() => registry(new Layer({ id: "a", element: "a-el", parent: "viewbox" })));
+
+  it("registers a layer at the end of its parent and creates its group", () => {
+    const layer = Layers.register({ id: "extension", element: "extension-el", parent: "viewbox" });
+
+    expect(layer.id).toBe("extension");
+    expect(Layers.all.map(layer => layer.id)).toEqual(["a", "extension"]);
+    expect(groupIds()).toEqual(["a-el", "extension-el"]);
+  });
+
+  it("registers before or after an existing sibling", () => {
+    Layers.register({ id: "after", element: "after-el", parent: "viewbox" }, { after: "a" });
+    Layers.register({ id: "before", element: "before-el", parent: "viewbox" }, { before: "a" });
+
+    expect(Layers.all.map(layer => layer.id)).toEqual(["before", "a", "after"]);
+    expect(groupIds()).toEqual(["before-el", "a-el", "after-el"]);
+  });
+
+  it("rejects duplicate ids and anchors in another svg parent", () => {
+    Layers.register({ id: "map-layer", element: "map-layer-el", parent: "map" });
+
+    expect(() => Layers.register({ id: "a", element: "duplicate-el", parent: "viewbox" })).toThrow(
+      "already registered"
+    );
+    expect(() =>
+      Layers.register({ id: "wrong-parent", element: "wrong-parent-el", parent: "viewbox" }, { before: "map-layer" })
+    ).toThrow("same parent");
+  });
+
+  it("unregisters the layer, removes its group and notifies subscribers", () => {
+    const erase = vi.fn();
+    Layers.register({ id: "extension", element: "extension-el", parent: "viewbox", erase });
+    const listener = vi.fn();
+    Layers.subscribe(listener);
+
+    expect(Layers.unregister("extension")).toBe(true);
+    expect(Layers.has("extension")).toBe(false);
+    expect(document.getElementById("extension-el")).toBeNull();
+    expect(erase).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledOnce();
+    expect(Layers.unregister("missing")).toBe(false);
+  });
+});
+
 describe("restore", () => {
   const register = (ids = ["a", "b", "c"]) => {
     const draw = vi.fn();
