@@ -443,6 +443,31 @@ export class LayersRegistry<Id extends string = string> {
     this.emit();
   }
 
+  moveWithinGroup(id: Id, before?: Id): void {
+    if (before === id) return;
+    const layer = this.get(id);
+    const group = this.getGroupForLayer(id);
+    if (!group) throw new Error(`Layer ${id} does not belong to a group`);
+    if (group.layerIds.length === 1) return;
+    if (before && this.getGroupForLayer(this.get(before).id) !== group) {
+      throw new Error(`Layer ${before} does not belong to group ${group.id}`);
+    }
+
+    const memberIds = new Set(group.layerIds);
+    this.layers.splice(this.layers.indexOf(layer), 1);
+    const groupMembers = this.layers.filter(candidate => memberIds.has(candidate.id));
+    const index = before ? this.layers.indexOf(this.get(before)) : this.layers.indexOf(groupMembers.at(-1)!) + 1;
+    this.layers.splice(index, 0, layer);
+    group.layerIds.splice(
+      0,
+      group.layerIds.length,
+      ...this.layers.filter(item => memberIds.has(item.id)).map(item => item.id)
+    );
+
+    this.init();
+    this.emit();
+  }
+
   get state(): LayersState {
     return {
       order: this.layers.map(layer => layer.id),

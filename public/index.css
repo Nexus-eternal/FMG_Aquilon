@@ -764,10 +764,95 @@ input[type="color"]::-webkit-color-swatch-wrapper {
 }
 
 #mapLayers {
-  display: inline-block;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.2em;
+  width: 100%;
   padding: 0;
   margin: 0;
   user-select: none; /* the items are re-rendered, so jQuery disableSelection cannot hold */
+}
+
+.layer-tree-root {
+  clear: both;
+  border: 1px solid var(--dark-solid);
+  border-radius: 0.2em;
+  padding: 0.25em;
+}
+
+.layer-world-header,
+.layer-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.layer-world-header {
+  justify-content: space-between;
+  padding: 0.25em 0.35em 0.45em;
+}
+
+.layer-world-header span {
+  color: var(--dark-solid);
+  font-size: 0.8em;
+}
+
+#mapLayers > li,
+#mapLayers .layer-group-layers > li {
+  float: none;
+  box-sizing: border-box;
+  width: auto;
+  margin: 0;
+}
+
+#mapLayers > li.layer-group {
+  grid-column: 1 / -1;
+  padding: 0.25em;
+  text-align: left;
+  text-transform: none;
+  overflow: visible;
+}
+
+.layer-group-header strong {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-group-header button {
+  flex: 0 0 1.8em;
+  width: 1.8em;
+  min-width: 0;
+  height: 1.8em;
+  padding: 0;
+  margin: 0;
+}
+
+.layer-group-header input[type="range"] {
+  width: 6em;
+  min-width: 3em;
+  margin: 0;
+}
+
+.layer-group-layers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.2em;
+  padding: 0.3em 0 0;
+  margin: 0;
+}
+
+.layer-group.collapsed .layer-group-header {
+  opacity: 0.85;
+}
+
+#mapLayers li.locked {
+  cursor: default;
+}
+
+#mapLayers li.locked > .layer-group-header,
+#mapLayers .layer-group-layers > li.locked {
+  outline: 1px dotted var(--dark-solid);
 }
 
 #mapFilters > button {

@@ -4,11 +4,14 @@ import { Layers } from "@/components/layers";
 import { ViewportLayers } from "@/renderers/viewport/viewport-renderer";
 import { isCtrlClick } from "@/utils";
 import { ensureEl, findEl } from "@/utils/nodeUtils";
+import { type LayerButton, renderLayerTree } from "./layer-tree";
 
-export interface LayerButton {
-  label: string; // button text, may contain markup marking the shortcut letter
-  shortcut?: string; // KeyboardEvent.code
-  hint?: string; // shortcut as shown in the tip, defaults to the code without the "Key" prefix
+export type { LayerButton } from "./layer-tree";
+
+interface SortableItem {
+  0: HTMLElement;
+  data(name: "layer"): string | undefined;
+  next(): SortableItem;
 }
 
 // only layers listed here get a button, in registry order
@@ -89,11 +92,13 @@ const TEMPLATE = /* html */ `
     style="display: none"
   ></button>
   <p>Displayed layers and layer order:</p>
-  <ul
-    data-tip="Click to toggle a layer, drag to raise or lower a layer. Ctrl + click to edit layer style"
-    id="mapLayers"
-  >
-  </ul>
+  <section class="layer-tree-root">
+    <div class="layer-world-header"><strong>World</strong><span>shared geography</span></div>
+    <ul
+      data-tip="Click to toggle a layer, drag to raise or lower a layer. Ctrl + click to edit layer style"
+      id="mapLayers"
+    ></ul>
+  </section>
   <div class="tip">Click to toggle, drag to raise or lower the layer</div>
   <div class="tip">Ctrl + click to edit layer style</div>
   <div id="viewMode" data-tip="Set view mode">
@@ -114,47 +119,76 @@ const TEMPLATE = /* html */ `
 ensureEl("layersContent").innerHTML = TEMPLATE;
 
 function render(): void {
-  ensureEl("mapLayers").replaceChildren(
-    ...Layers.all.flatMap(layer => {
-      const metadata = layer.params.metadata;
-      const button =
-        LAYER_TOGGLES.get(layer.id) ??
-        (metadata && { label: metadata.title, shortcut: metadata.shortcut, hint: metadata.hint });
-      if (!button) return [];
-
-      const item = document.createElement("li");
-      item.dataset.layer = layer.id;
-      item.dataset.tip = `${button.label.replace(/<\/?u>/g, "")}: click to toggle, drag to raise or lower the layer. Ctrl + click to edit layer style`;
-      if (button.shortcut) item.dataset.shortcut = button.hint ?? button.shortcut.replace("Key", "");
-      item.innerHTML = button.label;
-      item.classList.toggle("buttonoff", !Layers.isOn(layer.id));
-      item.classList.toggle("solid", layer.params.parent !== "viewbox"); // layers outside the viewbox cannot be reordered
-      return [item];
-    })
-  );
+  renderLayerTree(ensureEl("mapLayers"), Layers, LAYER_TOGGLES);
+  initializeSortables();
 }
 
 ensureEl("mapLayers").addEventListener("click", event => {
-  const id = (event.target as HTMLElement).closest("li")?.dataset.layer;
+  const target = event.target as HTMLElement;
+  const groupItem = target.closest<HTMLElement>("li[data-layer-group]");
+  const groupId = groupItem?.dataset.layerGroup;
+  const action = target.closest<HTMLElement>("[data-group-action]")?.dataset.groupAction;
+  if (groupId && action) {
+    const group = Layers.getGroup(groupId);
+    if (action === "collapse") Layers.setGroupCollapsed(groupId, !group.collapsed);
+    else if (action === "visibility") Layers.setGroupVisibility(groupId, !group.visible);
+    else if (action === "lock") Layers.setGroupLocked(groupId, !group.locked);
+    return;
+  }
+
+  const id = target.closest<HTMLElement>("li[data-layer]")?.dataset.layer;
   if (!id || !Layers.has(id)) return;
+  if (Layers.getGroupForLayer(id)?.locked) return;
 
   if (isCtrlClick(event)) return void editStyle(Layers.get(id).elementId);
   Layers.toggle(id);
 });
 
-// move layers on mapLayers dragging. TODO: deprecate jQuery
-$("#mapLayers").sortable({
-  items: "li:not(.solid)",
-  containment: "parent",
-  cancel: ".solid",
-  update: (_event: Event, ui: { item: any }) => {
-    const id = ui.item.data("layer");
-    const before = ui.item.next().data("layer");
-    const thisLayer = Layers.has(id) ? id : undefined;
-    const beforeLayer = Layers.has(before) ? before : undefined;
-    if (thisLayer) Layers.move(thisLayer, beforeLayer);
-  }
+ensureEl("mapLayers").addEventListener("change", event => {
+  const input = (event.target as HTMLElement).closest<HTMLInputElement>("input[data-group-opacity]");
+  const groupId = input?.closest<HTMLElement>("li[data-layer-group]")?.dataset.layerGroup;
+  if (input && groupId) Layers.setGroupOpacity(groupId, Number(input.value));
 });
+
+function initializeSortables(): void {
+  const root = $("#mapLayers");
+  if (!root.hasClass("ui-sortable")) {
+    root.sortable({
+      items: "> li:not(.solid)",
+      containment: "parent",
+      cancel: "button, input, .solid",
+      update: (_event: Event, ui: { item: SortableItem }) => {
+        const id = firstLayerId(ui.item[0]);
+        const before = firstLayerId(ui.item.next()[0]);
+        if (id && Layers.has(id)) {
+          queueMicrotask(() => Layers.move(id, before && Layers.has(before) ? before : undefined));
+        }
+      }
+    });
+  }
+
+  $(".layer-group-layers").each((_index: number, element: HTMLElement) => {
+    $(element).sortable({
+      items: "> li:not(.solid)",
+      containment: "parent",
+      cancel: ".solid",
+      update: (_event: Event, ui: { item: SortableItem }) => {
+        const id = ui.item.data("layer");
+        const before = ui.item.next().data("layer");
+        if (id && Layers.has(id)) {
+          queueMicrotask(() => Layers.moveWithinGroup(id, before && Layers.has(before) ? before : undefined));
+        }
+      }
+    });
+  });
+}
+
+function firstLayerId(element?: HTMLElement): string | undefined {
+  if (!element) return;
+  if (element.dataset.layer) return element.dataset.layer;
+  const groupId = element.dataset.layerGroup;
+  return groupId ? Layers.getGroup(groupId).layerIds[0] : undefined;
+}
 
 Layers.subscribe(render);
 Layers.subscribe(() => ViewportLayers.renderNow());

@@ -504,6 +504,16 @@ describe("layer groups", () => {
     expect(groupIds()).toEqual(["before-el", "layer-group-realm", "after-el", "c-el"]);
   });
 
+  it("reorders layers within a group without moving the group", () => {
+    Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
+    Layers.moveWithinGroup("a");
+
+    expect(Layers.all.map(layer => layer.id)).toEqual(["b", "a", "c"]);
+    expect(Layers.getGroup("realm").layerIds).toEqual(["b", "a"]);
+    expect(groupIds()).toEqual(["layer-group-realm", "c-el"]);
+    expect(groupIds("layer-group-realm")).toEqual(["b-el", "a-el"]);
+  });
+
   it("unwraps a removed group and removes an empty group after unregistering its last layer", () => {
     Layers.createGroup({ id: "realm", title: "Realm", layers: ["a", "b"] });
     expect(Layers.removeGroup("realm")).toBe(true);
