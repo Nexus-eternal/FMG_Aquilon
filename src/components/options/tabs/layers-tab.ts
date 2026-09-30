@@ -156,7 +156,7 @@ function initializeSortables(): void {
     root.sortable({
       items: "> li:not(.solid)",
       containment: "parent",
-      cancel: "button, input, .solid",
+      cancel: "button, input, .solid, .layer-group-layers",
       update: (_event: Event, ui: { item: SortableItem }) => {
         const id = firstLayerId(ui.item[0]);
         const before = firstLayerId(ui.item.next()[0]);
