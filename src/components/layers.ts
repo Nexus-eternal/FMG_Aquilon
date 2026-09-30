@@ -223,11 +223,14 @@ export class LayersRegistry<Id extends string = string> {
     return this.groups.find(group => group.layerIds.includes(id));
   }
 
-  createGroup(params: LayerGroupParams<Id>): LayerGroup<Id> {
+  createGroup(params: LayerGroupParams<string>): LayerGroup<Id> {
     if (this.hasGroup(params.id)) throw new Error(`Layer group ${params.id} is already registered`);
     if (!params.layers.length) throw new Error(`Layer group ${params.id} must contain at least one layer`);
 
-    const members = params.layers.map(id => this.get(id));
+    const members = params.layers.map(id => {
+      if (!this.has(id)) throw new Error(`Layer ${id} is not registered`);
+      return this.get(id);
+    });
     if (new Set(params.layers).size !== params.layers.length) {
       throw new Error(`Layer group ${params.id} contains duplicate layers`);
     }
@@ -243,7 +246,7 @@ export class LayersRegistry<Id extends string = string> {
       throw new Error(`Layers in group ${params.id} must be contiguous`);
     }
 
-    const group = new LayerGroup(params);
+    const group = new LayerGroup({ ...params, layers: members.map(layer => layer.id) });
     this.groups.push(group);
     this.init();
     this.emit();
