@@ -13,7 +13,8 @@ import type { PackedGraph } from "@/types/PackedGraph";
 
 const REALM_ID = "sky";
 const SURFACE_BACKDROP_ID = "demoSurfaceBackdrop";
-const REALM_LAYER_IDS = ["demoSkyTerrain", "demoSkyRoutes", "demoSkyMarkers"] as const;
+const SKY_EDITOR_CLOUDS_ID = "demoSkyEditorClouds";
+const REALM_LAYER_IDS = ["demoSkyClouds", "demoSkyTerrain", "demoSkyRoutes", "demoSkyMarkers"] as const;
 const SNAPSHOT_PARTS = {
   demoSkyTerrain: ["landmass", "lakes", "coastline"],
   demoSkyRoutes: ["routes"],
@@ -66,6 +67,25 @@ export function installRealmsDemo(): void {
       draw: drawSnapshot
     },
     { before: "landmass" }
+  );
+  Layers.register(
+    {
+      id: SKY_EDITOR_CLOUDS_ID,
+      parent: "viewbox",
+      permanent: true,
+      keepContent: true,
+      draw: drawClouds
+    },
+    { before: "landmass" }
+  );
+  Layers.register(
+    {
+      id: "demoSkyClouds",
+      parent: "viewbox",
+      metadata: { title: "Sky Clouds" },
+      draw: drawClouds
+    },
+    { before: "rulers" }
   );
   registerSnapshotLayer("demoSkyTerrain", "Sky Terrain");
   registerSnapshotLayer("demoSkyRoutes", "Sky Routes");
@@ -260,6 +280,44 @@ function drawSnapshot(layer: Layer): void {
   image.setAttribute("height", String(options.map.graph.height));
   image.setAttribute("pointer-events", "none");
   layer.getEl().replaceChildren(image);
+}
+
+function drawClouds(layer: Layer): void {
+  const editorClouds = layer.id === SKY_EDITOR_CLOUDS_ID;
+  if ((editorClouds && activeWorld !== "sky") || (!editorClouds && activeWorld !== "surface")) {
+    layer.getEl().replaceChildren();
+    return;
+  }
+
+  const { width, height } = options.map.graph;
+  const seed = cloudSeed(options.map.seed);
+  const svg = /* html */ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+    <defs>
+      <filter id="cloud-noise" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.012" numOctaves="4" seed="${seed}" result="noise" />
+        <feColorMatrix in="noise" type="luminanceToAlpha" result="alpha" />
+        <feComponentTransfer in="alpha" result="soft-clouds">
+          <feFuncA type="gamma" amplitude="1.7" exponent="1.2" offset="-0.65" />
+        </feComponentTransfer>
+        <feGaussianBlur in="soft-clouds" stdDeviation="7" result="blurred-clouds" />
+        <feFlood flood-color="#f5f9ff" flood-opacity="0.58" result="cloud-colour" />
+        <feComposite in="cloud-colour" in2="blurred-clouds" operator="in" />
+      </filter>
+    </defs>
+    <rect width="${width}" height="${height}" fill="transparent" filter="url(#cloud-noise)" />
+  </svg>`;
+  const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+  image.setAttribute("href", `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+  image.setAttribute("width", String(width));
+  image.setAttribute("height", String(height));
+  image.setAttribute("pointer-events", "none");
+  layer.getEl().replaceChildren(image);
+}
+
+function cloudSeed(value: string): number {
+  let seed = 0;
+  for (const character of value) seed = (seed * 31 + character.charCodeAt(0)) >>> 0;
+  return seed % 1000;
 }
 
 async function toggleWorld(): Promise<void> {
