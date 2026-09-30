@@ -8,6 +8,7 @@ import { Coordinates } from "./coordinates";
 const generationPipelineSteps = [
   { id: "grid", run: ({ graph }) => Grid.prepare(graph) },
   { id: "heightmap", run: () => HeightmapGenerator.generate() },
+  { id: "transformHeightmap", run: ({ transformHeightmap }) => transformHeightmap?.(grid) },
   { id: "markupGrid", run: () => Features.markupGrid() },
   { id: "depressionLakes", run: () => Grid.addDeepDepressionLakes() },
   { id: "nearSeaLakes", run: () => Grid.openNearSeaLakes() },
@@ -57,6 +58,7 @@ type GenerationPipelineStepId = (typeof generationPipelineSteps)[number]["id"];
 
 type GenerationContext = {
   graph?: GridGraph; // pre-created grid to use instead of generating one
+  transformHeightmap?: (graph: GridGraph) => void;
 };
 export const GenerationPipeline = new Pipeline<GenerationPipelineStepId, GenerationContext>(
   "Generation Pipeline",

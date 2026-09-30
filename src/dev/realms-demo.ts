@@ -5,6 +5,7 @@ import { syncOptionInputs } from "@/components/options/tabs/options-tab";
 import type { OptionsData } from "@/components/options-schema";
 import { Realms } from "@/components/realms";
 import { GenerationPipeline } from "@/generators/generation-pipeline";
+import { scaleHeightmap } from "@/generators/heightmap-transform";
 import { Styles } from "@/generators/styles";
 import type { StyleLayerId, Styles as StylesData } from "@/generators/styles-schema";
 import type { GridGraph } from "@/types/GridGraph";
@@ -113,7 +114,9 @@ async function generateSkyWorld(): Promise<void> {
     globalThis.pack = {} as PackedGraph;
     Styles.set(structuredClone(surfaceWorld.styles));
 
-    await GenerationPipeline.run({});
+    await GenerationPipeline.run({
+      transformHeightmap: graph => scaleHeightmap(graph, { scale: 0.32, borderRatio: 0.08 })
+    });
 
     const realmLayers = structuredClone(surfaceWorld.layers);
     realmLayers.active = [...new Set([...realmLayers.active, "routes", "markers", "lakes"])];
@@ -179,29 +182,27 @@ function updateSnapshots(): void {
 function createSnapshot(sourceIds: readonly string[]): string {
   const source = document.querySelector<SVGSVGElement>("#map");
   if (!source) throw new Error("Map SVG is missing");
-  const clone = source.cloneNode(true) as SVGSVGElement;
-  clone.id = "realm-snapshot";
+  const clone = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("viewBox", `0 0 ${options.map.graph.width} ${options.map.graph.height}`);
   clone.setAttribute("width", String(options.map.graph.width));
   clone.setAttribute("height", String(options.map.graph.height));
-  clone.removeAttribute("style");
+  clone.style.background = "transparent";
 
-  for (const child of Array.from(clone.children)) {
-    if (child.tagName.toLowerCase() !== "defs" && child.id !== "viewbox") child.remove();
-  }
+  const definitions = source.querySelector("defs")?.cloneNode(true);
+  if (definitions) clone.append(definitions);
 
-  const viewbox = clone.querySelector<SVGGElement>("#viewbox");
-  if (!viewbox) throw new Error("Map viewbox is missing");
-  viewbox.removeAttribute("transform");
-  for (const child of Array.from(viewbox.children)) {
-    if (!sourceIds.includes(child.id)) child.remove();
-    else {
-      child.removeAttribute("style");
-      const sourceLayer = source.querySelector<SVGElement>(`#${CSS.escape(child.id)}`);
-      if (sourceLayer) inlineStyles(sourceLayer, child);
-    }
+  const viewbox = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  for (const sourceId of sourceIds) {
+    const sourceLayer = source.querySelector<SVGElement>(`#${CSS.escape(sourceId)}`);
+    if (!sourceLayer) continue;
+    const layer = sourceLayer.cloneNode(true) as SVGElement;
+    layer.removeAttribute("style");
+    if (sourceId === "landmass") layer.setAttribute("mask", "url(#land)");
+    inlineStyles(sourceLayer, layer);
+    viewbox.append(layer);
   }
+  clone.append(viewbox);
 
   const xml = new XMLSerializer().serializeToString(clone);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
