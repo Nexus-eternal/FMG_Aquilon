@@ -107,6 +107,7 @@ function renderTemplateEditor(): void {
         <button data-type="Invert" data-tip="Invert heightmap along the axes">I</button>
         <button data-type="Add" data-tip="Add or subtract value from all heights in range">+</button>
         <button data-type="Multiply" data-tip="Multiply all heights in range by factor">*</button>
+        <button data-type="PolarOcean" data-tip="Polar Ocean: sink terrain near the north and south map edges">PO</button>
         <button
           data-type="Smooth"
           data-tip="Smooth the map replacing cell heights by an average values of its neighbors"
@@ -1538,7 +1539,8 @@ function getStepHTML(type: string, count?: string, arg3?: string, arg4?: string,
   const Trash = /* html */ `<i class="icon-trash-empty pointer" data-tip="Click to remove the step"></i>`;
   const Hide = /* html */ `<div class="icon-check" data-tip="Click to skip the step"></div>`;
   const Reorder = /* html */ `<i class="icon-resize-vertical" data-tip="Drag to reorder"></i>`;
-  const common = /* html */ `<div data-type="${type}">${Hide}<div style="width:4em">${type}</div>${Trash}${Reorder}`;
+  const typeWidth = type === "PolarOcean" ? "6.5em" : "4em";
+  const common = /* html */ `<div data-type="${type}">${Hide}<div style="width:${typeWidth}">${type}</div>${Trash}${Reorder}`;
 
   const TempY = /* html */ `<span>y:
       <input class="templateY" data-tip="Placement range percentage along Y axis (minY-maxY)" value=${
@@ -1650,6 +1652,25 @@ function getStepHTML(type: string, count?: string, arg3?: string, arg4?: string,
     </div>`;
   }
 
+  if (type === "PolarOcean") {
+    return /* html */ `${common}
+      <span>w:
+        <input class="templateCount" data-tip="Width of each polar band as a percentage of map height"
+          type="number" min=1 max=50 step=1 value=${count || 10} />
+      </span>
+      <span>h:
+        <input class="templateHeight" data-tip="Target height at the poles; water is 0 to 19"
+          type="number" min=0 max=19 step=1 value=${arg3 || 5} />
+      </span>
+      <span>f:
+        <select class="templateFalloff" data-tip="Height transition across each polar band">
+          <option value="smoothstep" ${arg4 !== "linear" ? "selected" : ""}>smoothstep</option>
+          <option value="linear" ${arg4 === "linear" ? "selected" : ""}>linear</option>
+        </select>
+      </span>
+    </div>`;
+  }
+
   return "";
 }
 
@@ -1736,6 +1757,7 @@ function executeTemplate(): void {
     const dist = step.querySelector<HTMLSelectElement>(".templateDist")?.value || "";
     const x = step.querySelector<HTMLInputElement>(".templateX")?.value || "";
     const y = step.querySelector<HTMLInputElement>(".templateY")?.value || "";
+    const falloff = step.querySelector<HTMLSelectElement>(".templateFalloff")?.value || "smoothstep";
     const type = step.dataset.type;
 
     if (type === "Hill") HeightmapGenerator.addHill(count, height, x, y);
@@ -1749,6 +1771,7 @@ function executeTemplate(): void {
     else if (type === "Add") HeightmapGenerator.modify(dist, +count, 1);
     else if (type === "Multiply") HeightmapGenerator.modify(dist, 0, +count);
     else if (type === "Smooth") HeightmapGenerator.smooth(+count);
+    else if (type === "PolarOcean") HeightmapGenerator.polarOcean(+count, +height, falloff as "linear" | "smoothstep");
 
     grid.cells.h = HeightmapGenerator.getHeights()!;
     updateHistory("noStat"); // update history on every step
@@ -1778,7 +1801,11 @@ function downloadTemplate(): void {
       "0";
     const x = s.querySelector<HTMLInputElement>(".templateX")?.value || "0";
     const y = s.querySelector<HTMLInputElement>(".templateY")?.value || "0";
-    data += `${type} ${count} ${arg3} ${x} ${y}\r\n`;
+    const falloff = s.querySelector<HTMLSelectElement>(".templateFalloff")?.value;
+    data +=
+      type === "PolarOcean"
+        ? `${type} ${count} ${arg3} ${falloff || "smoothstep"} 0\r\n`
+        : `${type} ${count} ${arg3} ${x} ${y}\r\n`;
   }
 
   const name = `template_${Date.now()}.txt`;

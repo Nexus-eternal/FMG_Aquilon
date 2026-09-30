@@ -4,12 +4,24 @@ import type { MapData } from "@/components/options-schema";
 import { heightmapTemplates } from "@/data/heightmap-templates";
 import type { GridGraph } from "@/types/GridGraph";
 import { getNumberInRange, lim, minmax, P, rand } from "../utils";
+import { applyPolarOcean, type PolarOceanFalloff } from "./polar-ocean";
 
 declare global {
   var HeightmapGenerator: HeightmapModule;
 }
 
-type Tool = "Hill" | "Pit" | "Range" | "Trough" | "Strait" | "Mask" | "Invert" | "Add" | "Multiply" | "Smooth";
+type Tool =
+  | "Hill"
+  | "Pit"
+  | "Range"
+  | "Trough"
+  | "Strait"
+  | "Mask"
+  | "Invert"
+  | "Add"
+  | "Multiply"
+  | "Smooth"
+  | "PolarOcean";
 
 class HeightmapModule {
   grid: any = null;
@@ -469,6 +481,19 @@ class HeightmapModule {
     });
   }
 
+  polarOcean(widthPercent: number, targetHeight = 5, falloff: PolarOceanFalloff = "smoothstep"): void {
+    if (!this.heights || !this.grid) return;
+    this.heights = applyPolarOcean(
+      this.heights,
+      { points: this.grid.points, height: this.height },
+      {
+        widthPercent,
+        targetHeight,
+        falloff
+      }
+    );
+  }
+
   mask(power = 1): void {
     if (!this.heights || !this.grid) return;
     const fr = power ? Math.abs(power) : 1;
@@ -544,6 +569,10 @@ class HeightmapModule {
     }
     if (tool === "Smooth") {
       this.smooth(+a2);
+      return;
+    }
+    if (tool === "PolarOcean") {
+      this.polarOcean(+a2, +a3, a4 as PolarOceanFalloff);
       return;
     }
   }
