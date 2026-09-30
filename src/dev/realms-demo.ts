@@ -53,6 +53,10 @@ let activeWorld: "surface" | "sky" = "surface";
 let surfaceWorld: WorldContext;
 let skyWorld: WorldContext;
 let generating = false;
+let cloudDensity = 0.85;
+let groundVisibility = 0.65;
+let realmCloudLayer: Layer;
+let editorCloudLayer: Layer;
 const snapshots = new Map<string, string>();
 
 export function installRealmsDemo(): void {
@@ -68,7 +72,7 @@ export function installRealmsDemo(): void {
     },
     { before: "landmass" }
   );
-  Layers.register(
+  editorCloudLayer = Layers.register(
     {
       id: SKY_EDITOR_CLOUDS_ID,
       parent: "viewbox",
@@ -78,7 +82,7 @@ export function installRealmsDemo(): void {
     },
     { before: "landmass" }
   );
-  Layers.register(
+  realmCloudLayer = Layers.register(
     {
       id: "demoSkyClouds",
       parent: "viewbox",
@@ -291,19 +295,23 @@ function drawClouds(layer: Layer): void {
 
   const { width, height } = options.map.graph;
   const seed = cloudSeed(options.map.seed);
+  const hazeOpacity = (1 - groundVisibility) * 0.65;
+  const cloudOffset = -0.78 + cloudDensity * 0.38;
+  const cloudOpacity = 0.45 + cloudDensity * 0.5;
   const svg = /* html */ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
     <defs>
       <filter id="cloud-noise" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
         <feTurbulence type="fractalNoise" baseFrequency="0.006 0.012" numOctaves="4" seed="${seed}" result="noise" />
         <feColorMatrix in="noise" type="luminanceToAlpha" result="alpha" />
         <feComponentTransfer in="alpha" result="soft-clouds">
-          <feFuncA type="gamma" amplitude="1.7" exponent="1.2" offset="-0.65" />
+          <feFuncA type="gamma" amplitude="1.7" exponent="1.2" offset="${cloudOffset.toFixed(3)}" />
         </feComponentTransfer>
-        <feGaussianBlur in="soft-clouds" stdDeviation="7" result="blurred-clouds" />
-        <feFlood flood-color="#f5f9ff" flood-opacity="0.58" result="cloud-colour" />
+        <feGaussianBlur in="soft-clouds" stdDeviation="6" result="blurred-clouds" />
+        <feFlood flood-color="#f7fbff" flood-opacity="${cloudOpacity.toFixed(3)}" result="cloud-colour" />
         <feComposite in="cloud-colour" in2="blurred-clouds" operator="in" />
       </filter>
     </defs>
+    <rect width="${width}" height="${height}" fill="#b9d3eb" fill-opacity="${hazeOpacity.toFixed(3)}" />
     <rect width="${width}" height="${height}" fill="transparent" filter="url(#cloud-noise)" />
   </svg>`;
   const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
@@ -349,10 +357,40 @@ function showDemoControls(): void {
   controls.innerHTML = /* html */ `
     <strong>Generated Realm demo</strong>
     <span id="realmDemoStatus">Waiting for the Surface map…</span>
+    <label class="realm-demo-slider">
+      <span>Cloud density</span>
+      <input id="realmDemoCloudDensity" type="range" min="0.2" max="1" step="0.05" value="${cloudDensity}" />
+      <output>${Math.round(cloudDensity * 100)}%</output>
+    </label>
+    <label class="realm-demo-slider">
+      <span>Ground visibility</span>
+      <input id="realmDemoGroundVisibility" type="range" min="0" max="1" step="0.05" value="${groundVisibility}" />
+      <output>${Math.round(groundVisibility * 100)}%</output>
+    </label>
     <button id="realmDemoSwitch" type="button">Enter Sky Realm editor</button>
   `;
-  controls.querySelector("button")?.addEventListener("click", () => void toggleWorld());
   document.getElementById("layersContent")?.prepend(controls);
+  controls.querySelector("button")?.addEventListener("click", () => void toggleWorld());
+  bindAtmosphereSlider("realmDemoCloudDensity", value => (cloudDensity = value));
+  bindAtmosphereSlider("realmDemoGroundVisibility", value => (groundVisibility = value));
+}
+
+function bindAtmosphereSlider(id: string, update: (value: number) => void): void {
+  const input = document.getElementById(id) as HTMLInputElement | null;
+  if (!input) return;
+
+  input.addEventListener("input", () => {
+    const value = Number(input.value);
+    update(value);
+    const output = input.parentElement?.querySelector("output");
+    if (output) output.value = `${Math.round(value * 100)}%`;
+    redrawClouds();
+  });
+}
+
+function redrawClouds(): void {
+  if (realmCloudLayer) drawClouds(realmCloudLayer);
+  if (editorCloudLayer) drawClouds(editorCloudLayer);
 }
 
 function setDemoStatus(message: string): void {
