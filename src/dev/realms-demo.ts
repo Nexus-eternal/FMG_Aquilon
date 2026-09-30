@@ -1,141 +1,278 @@
-import { type Layer, Layers } from "@/components/layers";
+import { fitMapToScreen } from "@/components/canvas";
+import { closeDialogs } from "@/components/dialog/dialog-helpers";
+import { type Layer, Layers, type LayersState } from "@/components/layers";
+import { syncOptionInputs } from "@/components/options/tabs/options-tab";
+import type { OptionsData } from "@/components/options-schema";
 import { Realms } from "@/components/realms";
+import { GenerationPipeline } from "@/generators/generation-pipeline";
+import { Styles } from "@/generators/styles";
+import type { StyleLayerId, Styles as StylesData } from "@/generators/styles-schema";
+import type { GridGraph } from "@/types/GridGraph";
+import type { PackedGraph } from "@/types/PackedGraph";
 
-const DEMO_LAYER_IDS = ["demoSkyIslands", "demoSkyRoutes", "demoSkyMarkers"] as const;
+const REALM_ID = "sky";
+const REALM_LAYER_IDS = ["demoSkyTerrain", "demoSkyRoutes", "demoSkyMarkers"] as const;
+const SNAPSHOT_PARTS = {
+  demoSkyTerrain: ["landmass", "lakes", "coastline"],
+  demoSkyRoutes: ["routes"],
+  demoSkyMarkers: ["markers"]
+} as const;
+const SNAPSHOT_STYLE_PROPERTIES = [
+  "color",
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "text-anchor",
+  "dominant-baseline",
+  "paint-order",
+  "filter"
+] as const;
+
+interface WorldContext {
+  grid: GridGraph;
+  pack: PackedGraph;
+  options: OptionsData;
+  styles: StylesData;
+  layers: LayersState;
+}
+
+let activeWorld: "surface" | "sky" = "surface";
+let surfaceWorld: WorldContext;
+let skyWorld: WorldContext;
+let generating = false;
+const snapshots = new Map<string, string>();
 
 export function installRealmsDemo(): void {
-  if (Realms.has("sky")) return;
+  if (Realms.has(REALM_ID)) return;
 
-  Layers.register(
-    {
-      id: "demoSkyIslands",
-      parent: "viewbox",
-      metadata: { title: "Sky Islands" },
-      draw: drawSkyIslands
-    },
-    { before: "rulers" }
-  );
-  Layers.register(
-    {
-      id: "demoSkyRoutes",
-      parent: "viewbox",
-      metadata: { title: "Air Routes" },
-      draw: drawSkyRoutes
-    },
-    { before: "rulers" }
-  );
-  Layers.register(
-    {
-      id: "demoSkyMarkers",
-      parent: "viewbox",
-      metadata: { title: "Sky Markers" },
-      draw: drawSkyMarkers
-    },
-    { before: "rulers" }
-  );
+  registerSnapshotLayer("demoSkyTerrain", "Sky Terrain");
+  registerSnapshotLayer("demoSkyRoutes", "Sky Routes");
+  registerSnapshotLayer("demoSkyMarkers", "Sky Markers");
 
   Realms.register({
-    id: "sky",
-    title: "Sky Realm (demo)",
+    id: REALM_ID,
+    title: "Sky Realm (generated)",
     visible: true,
-    opacity: 0.85,
+    opacity: 0.6,
     locked: false,
-    layerIds: [...DEMO_LAYER_IDS]
+    layerIds: [...REALM_LAYER_IDS]
   });
-  Layers.set([...Layers.state.active, ...DEMO_LAYER_IDS]);
-  showDemoNotice();
+
+  showDemoControls();
+  window.addEventListener("map:generated", () => window.setTimeout(() => void onMapGenerated()));
+  if (pack.cells?.i?.length) window.setTimeout(() => void onMapGenerated());
 }
 
-function drawSkyIslands(layer: Layer): void {
-  const group = layer.getEl();
-  const { width, height } = getMapSize(group);
-  group.replaceChildren(
-    createSvg("ellipse", {
-      cx: String(width * 0.24),
-      cy: String(height * 0.26),
-      rx: String(width * 0.07),
-      ry: String(height * 0.03),
-      fill: "#f5dc88",
-      stroke: "#704f91"
-    }),
-    createSvg("ellipse", {
-      cx: String(width * 0.52),
-      cy: String(height * 0.18),
-      rx: String(width * 0.09),
-      ry: String(height * 0.04),
-      fill: "#d7f0a2",
-      stroke: "#704f91"
-    }),
-    createSvg("ellipse", {
-      cx: String(width * 0.76),
-      cy: String(height * 0.34),
-      rx: String(width * 0.06),
-      ry: String(height * 0.028),
-      fill: "#f4b8cf",
-      stroke: "#704f91"
-    })
+function registerSnapshotLayer(id: (typeof REALM_LAYER_IDS)[number], title: string): void {
+  Layers.register(
+    {
+      id,
+      parent: "viewbox",
+      metadata: { title },
+      draw: drawSnapshot
+    },
+    { before: "rulers" }
   );
-  group.setAttribute("stroke-width", "2");
-  group.setAttribute("pointer-events", "none");
 }
 
-function drawSkyRoutes(layer: Layer): void {
-  const group = layer.getEl();
-  const { width, height } = getMapSize(group);
-  group.replaceChildren(
-    createSvg("path", {
-      d: `M ${width * 0.24} ${height * 0.26} Q ${width * 0.38} ${height * 0.05} ${width * 0.52} ${height * 0.18} T ${width * 0.76} ${height * 0.34}`,
-      fill: "none",
-      stroke: "#6b3f8f",
-      "stroke-width": "2",
-      "stroke-dasharray": "7 5"
-    })
-  );
-  group.setAttribute("pointer-events", "none");
+async function onMapGenerated(): Promise<void> {
+  if (generating) return;
+
+  if (activeWorld === "sky") {
+    skyWorld = captureWorld();
+    updateSnapshots();
+    return;
+  }
+
+  await generateSkyWorld();
 }
 
-function drawSkyMarkers(layer: Layer): void {
-  const group = layer.getEl();
-  const { width, height } = getMapSize(group);
-  group.replaceChildren(
-    createMarker(width * 0.24, height * 0.26, "Aerie"),
-    createMarker(width * 0.52, height * 0.18, "Cloudhaven"),
-    createMarker(width * 0.76, height * 0.34, "Zephyr Gate")
-  );
-  group.setAttribute("pointer-events", "none");
+async function generateSkyWorld(): Promise<void> {
+  if (generating) return;
+  generating = true;
+  setDemoStatus("Generating Sky Realm with Azgaar’s Archipelago preset…");
+
+  try {
+    surfaceWorld = captureWorld();
+    const realmOptions = structuredClone(surfaceWorld.options);
+    realmOptions.map.seed = `${surfaceWorld.options.map.seed}-sky`;
+    realmOptions.generation.template = "archipelago";
+
+    globalThis.options = realmOptions;
+    globalThis.grid = {} as GridGraph;
+    globalThis.pack = {} as PackedGraph;
+    Styles.set(structuredClone(surfaceWorld.styles));
+
+    await GenerationPipeline.run({});
+
+    const realmLayers = structuredClone(surfaceWorld.layers);
+    realmLayers.active = [...new Set([...realmLayers.active, "routes", "markers", "lakes"])];
+    setRealmVisibility(realmLayers, false);
+    Layers.restore(realmLayers);
+    writeStyles();
+    Layers.drawAll();
+
+    skyWorld = captureWorld();
+    updateSnapshots();
+
+    applyWorld(surfaceWorld);
+    Layers.set([...Layers.state.active, ...REALM_LAYER_IDS]);
+    Realms.setVisibility(REALM_ID, true);
+    surfaceWorld = captureWorld();
+    setDemoStatus("Sky Realm uses a real generated world. Enter it to edit with the standard Tools menu.");
+  } catch (error) {
+    console.error("Could not generate Sky Realm", error);
+    setDemoStatus("Sky Realm generation failed. Check the browser console.");
+    if (surfaceWorld) applyWorld(surfaceWorld);
+  } finally {
+    generating = false;
+  }
 }
 
-function createMarker(x: number, y: number, label: string): SVGGElement {
-  const marker = createSvg<SVGGElement>("g", { transform: `translate(${x} ${y})` });
-  marker.append(
-    createSvg("circle", { r: "5", fill: "#6b3f8f", stroke: "white", "stroke-width": "1.5" }),
-    createSvg("text", { x: "8", y: "3", fill: "#2e193d", "font-size": "11", "font-weight": "bold" }, label)
-  );
-  return marker;
+function captureWorld(): WorldContext {
+  return {
+    grid,
+    pack,
+    options,
+    styles,
+    layers: structuredClone(Layers.state)
+  };
 }
 
-function getMapSize(group: SVGGElement): { width: number; height: number } {
-  const map = group.ownerSVGElement;
-  const width = map?.viewBox.baseVal.width || Number(map?.getAttribute("width")) || 1000;
-  const height = map?.viewBox.baseVal.height || Number(map?.getAttribute("height")) || 1000;
-  return { width, height };
+function applyWorld(world: WorldContext): void {
+  globalThis.grid = world.grid;
+  globalThis.pack = world.pack;
+  globalThis.options = world.options;
+  Styles.set(world.styles);
+  Layers.restore(world.layers);
+  writeStyles();
+  Layers.drawAll();
+  syncOptionInputs();
+  fitMapToScreen();
 }
 
-function createSvg<Element extends SVGElement = SVGElement>(
-  tag: string,
-  attributes: Record<string, string>,
-  text?: string
-): Element {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", tag) as Element;
-  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
-  if (text) element.textContent = text;
-  return element;
+function writeStyles(): void {
+  Styles.write(...(Object.keys(styles) as StyleLayerId[]));
 }
 
-function showDemoNotice(): void {
-  if (document.getElementById("realmDemoNotice")) return;
-  const notice = document.createElement("p");
-  notice.id = "realmDemoNotice";
-  notice.textContent = "Realm demo mode — local testing only";
-  document.getElementById("layersContent")?.prepend(notice);
+function setRealmVisibility(state: LayersState, visible: boolean): void {
+  const group = state.groups?.find(group => group.id === `realm-${REALM_ID}`);
+  if (group) group.visible = visible;
+}
+
+function updateSnapshots(): void {
+  for (const [layerId, sourceIds] of Object.entries(SNAPSHOT_PARTS)) {
+    snapshots.set(layerId, createSnapshot(sourceIds));
+  }
+}
+
+function createSnapshot(sourceIds: readonly string[]): string {
+  const source = document.querySelector<SVGSVGElement>("#map");
+  if (!source) throw new Error("Map SVG is missing");
+  const clone = source.cloneNode(true) as SVGSVGElement;
+  clone.id = "realm-snapshot";
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("viewBox", `0 0 ${options.map.graph.width} ${options.map.graph.height}`);
+  clone.setAttribute("width", String(options.map.graph.width));
+  clone.setAttribute("height", String(options.map.graph.height));
+  clone.removeAttribute("style");
+
+  for (const child of Array.from(clone.children)) {
+    if (child.tagName.toLowerCase() !== "defs" && child.id !== "viewbox") child.remove();
+  }
+
+  const viewbox = clone.querySelector<SVGGElement>("#viewbox");
+  if (!viewbox) throw new Error("Map viewbox is missing");
+  viewbox.removeAttribute("transform");
+  for (const child of Array.from(viewbox.children)) {
+    if (!sourceIds.includes(child.id)) child.remove();
+    else {
+      child.removeAttribute("style");
+      const sourceLayer = source.querySelector<SVGElement>(`#${CSS.escape(child.id)}`);
+      if (sourceLayer) inlineStyles(sourceLayer, child);
+    }
+  }
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+}
+
+function inlineStyles(source: Element, target: Element): void {
+  const computed = getComputedStyle(source);
+  for (const property of SNAPSHOT_STYLE_PROPERTIES) {
+    const value = computed.getPropertyValue(property);
+    if (value) (target as SVGElement).style.setProperty(property, value);
+  }
+
+  const sourceChildren = Array.from(source.children);
+  const targetChildren = Array.from(target.children);
+  for (let index = 0; index < Math.min(sourceChildren.length, targetChildren.length); index++) {
+    inlineStyles(sourceChildren[index], targetChildren[index]);
+  }
+}
+
+function drawSnapshot(layer: Layer): void {
+  const href = snapshots.get(layer.id);
+  if (!href) return void layer.getEl().replaceChildren();
+
+  const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+  image.setAttribute("href", href);
+  image.setAttribute("width", String(options.map.graph.width));
+  image.setAttribute("height", String(options.map.graph.height));
+  image.setAttribute("pointer-events", "none");
+  layer.getEl().replaceChildren(image);
+}
+
+async function toggleWorld(): Promise<void> {
+  if (generating || !skyWorld) return;
+  closeDialogs();
+
+  if (activeWorld === "surface") {
+    surfaceWorld = captureWorld();
+    activeWorld = "sky";
+    applyWorld(skyWorld);
+    setDemoStatus("Editing Sky Realm. Features, Routes, Markers and Heightmap now target this Realm.");
+  } else {
+    Layers.drawAll();
+    skyWorld = captureWorld();
+    updateSnapshots();
+    activeWorld = "surface";
+    applyWorld(surfaceWorld);
+    setDemoStatus("Sky Realm overlay refreshed from the edited world.");
+  }
+
+  updateSwitchButton();
+}
+
+function showDemoControls(): void {
+  if (document.getElementById("realmDemoControls")) return;
+  const controls = document.createElement("div");
+  controls.id = "realmDemoControls";
+  controls.innerHTML = /* html */ `
+    <strong>Generated Realm demo</strong>
+    <span id="realmDemoStatus">Waiting for the Surface map…</span>
+    <button id="realmDemoSwitch" type="button">Enter Sky Realm editor</button>
+  `;
+  controls.querySelector("button")?.addEventListener("click", () => void toggleWorld());
+  document.getElementById("layersContent")?.prepend(controls);
+}
+
+function setDemoStatus(message: string): void {
+  const status = document.getElementById("realmDemoStatus");
+  if (status) status.textContent = message;
+}
+
+function updateSwitchButton(): void {
+  const button = document.getElementById("realmDemoSwitch");
+  if (button) button.textContent = activeWorld === "surface" ? "Enter Sky Realm editor" : "Return to Surface";
 }

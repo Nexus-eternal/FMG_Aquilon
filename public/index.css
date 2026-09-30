@@ -780,14 +780,20 @@ input[type="color"]::-webkit-color-swatch-wrapper {
   padding: 0.25em;
 }
 
-#realmDemoNotice {
+#realmDemoControls {
+  display: grid;
+  gap: 0.35em;
   margin: 0.2em 0 0.45em;
   padding: 0.35em;
   border: 1px solid #8a639f;
   background: #eadcf1;
   color: #452857;
   text-align: center;
-  font-weight: bold;
+}
+
+#realmDemoControls button {
+  width: 100%;
+  padding: 0.35em;
 }
 
 .layer-world-header,
