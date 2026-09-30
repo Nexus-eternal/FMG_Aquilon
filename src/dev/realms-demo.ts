@@ -12,6 +12,7 @@ import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
 
 const REALM_ID = "sky";
+const SURFACE_BACKDROP_ID = "demoSurfaceBackdrop";
 const REALM_LAYER_IDS = ["demoSkyTerrain", "demoSkyRoutes", "demoSkyMarkers"] as const;
 const SNAPSHOT_PARTS = {
   demoSkyTerrain: ["landmass", "lakes", "coastline"],
@@ -56,6 +57,16 @@ const snapshots = new Map<string, string>();
 export function installRealmsDemo(): void {
   if (Realms.has(REALM_ID)) return;
 
+  Layers.register(
+    {
+      id: SURFACE_BACKDROP_ID,
+      parent: "viewbox",
+      permanent: true,
+      keepContent: true,
+      draw: drawSnapshot
+    },
+    { before: "landmass" }
+  );
   registerSnapshotLayer("demoSkyTerrain", "Sky Terrain");
   registerSnapshotLayer("demoSkyRoutes", "Sky Routes");
   registerSnapshotLayer("demoSkyMarkers", "Sky Markers");
@@ -179,6 +190,18 @@ function updateSnapshots(): void {
   }
 }
 
+function updateSurfaceBackdrop(): void {
+  const sourceIds = Layers.all
+    .filter(layer => layer.parent === "viewbox")
+    .filter(layer => Layers.isOn(layer.id))
+    .filter(layer => {
+      const id = String(layer.id);
+      return id !== SURFACE_BACKDROP_ID && !(REALM_LAYER_IDS as readonly string[]).includes(id);
+    })
+    .map(layer => layer.elementId);
+  snapshots.set(SURFACE_BACKDROP_ID, createSnapshot(sourceIds));
+}
+
 function createSnapshot(sourceIds: readonly string[]): string {
   const source = document.querySelector<SVGSVGElement>("#map");
   if (!source) throw new Error("Map SVG is missing");
@@ -223,6 +246,11 @@ function inlineStyles(source: Element, target: Element): void {
 }
 
 function drawSnapshot(layer: Layer): void {
+  if (layer.id === SURFACE_BACKDROP_ID && activeWorld !== "sky") {
+    layer.getEl().replaceChildren();
+    return;
+  }
+
   const href = snapshots.get(layer.id);
   if (!href) return void layer.getEl().replaceChildren();
 
@@ -240,9 +268,10 @@ async function toggleWorld(): Promise<void> {
 
   if (activeWorld === "surface") {
     surfaceWorld = captureWorld();
+    updateSurfaceBackdrop();
     activeWorld = "sky";
     applyWorld(skyWorld);
-    setDemoStatus("Editing Sky Realm. Features, Routes, Markers and Heightmap now target this Realm.");
+    setDemoStatus("Editing Sky Realm over the live Surface backdrop. Sky oceans are transparent.");
   } else {
     Layers.drawAll();
     skyWorld = captureWorld();
