@@ -130,6 +130,20 @@ export function installRealmsDemo(): void {
   );
 
   showDemoControls();
+  window.addEventListener("underwater:focus", () => {
+    if (activeWorld !== "surface") return;
+    cloudDensity = 0;
+    groundVisibility = 1;
+    for (const [id, value] of [
+      ["realmDemoCloudDensity", 0],
+      ["realmDemoGroundVisibility", 1]
+    ] as const) {
+      const input = document.getElementById(id) as HTMLInputElement;
+      input.value = String(value);
+      input.parentElement!.querySelector("output")!.value = `${value * 100}%`;
+    }
+    redrawClouds();
+  });
   const viewbox = document.getElementById("viewbox");
   if (viewbox) new MutationObserver(drawVerticalFilter).observe(viewbox, { childList: true, subtree: true });
   window.addEventListener("map:generated", () => window.setTimeout(() => void onMapGenerated()));
@@ -242,6 +256,7 @@ function applyWorld(world: WorldContext, realmId: "surface" | "sky"): void {
   Layers.restore(world.layers);
   writeStyles();
   Layers.drawAll();
+  window.dispatchEvent(new Event("realm:changed"));
   syncOptionInputs();
   fitMapToScreen();
 }
@@ -270,6 +285,7 @@ function updateSurfaceBackdrop(): void {
       return (
         id !== SURFACE_BACKDROP_ID &&
         id !== SURFACE_ATMOSPHERE_ID &&
+        id !== "underwaterObjects" &&
         !(REALM_LAYER_IDS as readonly string[]).includes(id)
       );
     })
