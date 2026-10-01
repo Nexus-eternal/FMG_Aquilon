@@ -1,15 +1,16 @@
 import { fitMapToScreen } from "@/components/canvas";
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { type Layer, Layers, type LayersState } from "@/components/layers";
+import { MapSaveContext } from "@/components/map-save-context";
 import { syncOptionInputs } from "@/components/options/tabs/options-tab";
 import type { OptionsData } from "@/components/options-schema";
 import { RealmData } from "@/components/realm-data";
+import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
 import { Realms } from "@/components/realms";
-import { GenerationPipeline } from "@/generators/generation-pipeline";
+import { GenerationPipeline, PackGenerationPipeline } from "@/generators/generation-pipeline";
 import { scaleHeightmap } from "@/generators/heightmap-transform";
 import { Styles } from "@/generators/styles";
 import type { StyleLayerId, Styles as StylesData } from "@/generators/styles-schema";
-import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
 import { createRealmCloudSvg } from "./realm-clouds";
 
@@ -45,7 +46,7 @@ const SNAPSHOT_STYLE_PROPERTIES = [
 ] as const;
 
 interface WorldContext {
-  grid: GridGraph;
+  terrain: RealmTerrainData;
   pack: PackedGraph;
   options: OptionsData;
   styles: StylesData;
@@ -117,6 +118,7 @@ export function installRealmsDemo(): void {
     locked: false,
     layerIds: [...REALM_LAYER_IDS]
   });
+  MapSaveContext.register(prepareSurfaceForSave);
 
   showDemoControls();
   window.addEventListener("map:generated", () => window.setTimeout(() => void onMapGenerated()));
@@ -138,8 +140,12 @@ function registerSnapshotLayer(id: (typeof REALM_LAYER_IDS)[number], title: stri
 async function onMapGenerated(): Promise<void> {
   if (generating) return;
 
+  // Saved multi-Realm maps always load their canonical Surface as the main .map body.
+  if (RealmData.active === "surface") activeWorld = "surface";
+
   if (activeWorld === "sky") {
     skyWorld = captureWorld();
+    RealmData.save(REALM_ID, skyWorld.pack, grid);
     updateSnapshots();
     return;
   }
@@ -154,23 +160,28 @@ async function generateSkyWorld(): Promise<void> {
 
   try {
     surfaceWorld = captureWorld();
-    RealmData.save("surface", surfaceWorld.pack);
+    RealmData.save("surface", surfaceWorld.pack, grid);
     const realmOptions = structuredClone(surfaceWorld.options);
     realmOptions.map.seed = `${surfaceWorld.options.map.seed}-sky`;
     realmOptions.generation.template = "archipelago";
 
     globalThis.options = realmOptions;
-    globalThis.grid = {} as GridGraph;
     globalThis.pack = {} as PackedGraph;
     Styles.set(structuredClone(surfaceWorld.styles));
 
-    await GenerationPipeline.run({
-      transformHeightmap: graph => scaleHeightmap(graph, { scale: 0.32, borderRatio: 0.08 })
-    });
+    if (RealmData.hasTerrain(REALM_ID)) {
+      RealmData.applyTerrain(REALM_ID, grid);
+      await PackGenerationPipeline.run({});
+    } else {
+      await GenerationPipeline.run({
+        graph: grid,
+        transformHeightmap: graph => scaleHeightmap(graph, { scale: 0.32, borderRatio: 0.08 })
+      });
+    }
 
     // A loaded .map can carry edits made with the standard editors in this Realm.
-    // The deterministic generation above recreates its geography, then the scoped
-    // data replaces only the Realm-owned entities on the shared cell indices.
+    // The restored or newly generated terrain above rebuilds the derived pack, then
+    // scoped data replaces only the Realm-owned entities on the shared cell indices.
     if (RealmData.has(REALM_ID)) RealmData.activate(REALM_ID, pack);
 
     const realmLayers = structuredClone(surfaceWorld.layers);
@@ -181,7 +192,7 @@ async function generateSkyWorld(): Promise<void> {
     Layers.drawAll();
 
     skyWorld = captureWorld();
-    RealmData.save(REALM_ID, skyWorld.pack);
+    RealmData.save(REALM_ID, skyWorld.pack, grid);
     updateSnapshots();
 
     applyWorld(surfaceWorld);
@@ -201,7 +212,7 @@ async function generateSkyWorld(): Promise<void> {
 
 function captureWorld(): WorldContext {
   return {
-    grid,
+    terrain: captureRealmTerrain(grid),
     pack,
     options,
     styles,
@@ -210,7 +221,7 @@ function captureWorld(): WorldContext {
 }
 
 function applyWorld(world: WorldContext): void {
-  globalThis.grid = world.grid;
+  applyRealmTerrain(grid, world.terrain);
   globalThis.pack = world.pack;
   globalThis.options = world.options;
   Styles.set(world.styles);
@@ -354,7 +365,7 @@ async function toggleWorld(): Promise<void> {
 
   if (activeWorld === "surface") {
     surfaceWorld = captureWorld();
-    RealmData.save("surface", surfaceWorld.pack);
+    RealmData.save("surface", surfaceWorld.pack, grid);
     updateSurfaceBackdrop();
     activeWorld = "sky";
     applyWorld(skyWorld);
@@ -363,7 +374,7 @@ async function toggleWorld(): Promise<void> {
   } else {
     Layers.drawAll();
     skyWorld = captureWorld();
-    RealmData.save(REALM_ID, skyWorld.pack);
+    RealmData.save(REALM_ID, skyWorld.pack, grid);
     updateSnapshots();
     activeWorld = "surface";
     applyWorld(surfaceWorld);
@@ -372,6 +383,30 @@ async function toggleWorld(): Promise<void> {
   }
 
   updateSwitchButton();
+}
+
+async function prepareSurfaceForSave(): Promise<() => void> {
+  if (activeWorld === "surface") {
+    surfaceWorld = captureWorld();
+    RealmData.save("surface", surfaceWorld.pack, grid);
+    return () => undefined;
+  }
+
+  skyWorld = captureWorld();
+  RealmData.save(REALM_ID, skyWorld.pack, grid);
+  activeWorld = "surface";
+  applyWorld(surfaceWorld);
+  RealmData.setActive("surface");
+  updateSwitchButton();
+
+  return () => {
+    surfaceWorld = captureWorld();
+    RealmData.save("surface", surfaceWorld.pack, grid);
+    activeWorld = "sky";
+    applyWorld(skyWorld);
+    RealmData.setActive(REALM_ID);
+    updateSwitchButton();
+  };
 }
 
 function showDemoControls(): void {
