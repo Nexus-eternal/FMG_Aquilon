@@ -5,6 +5,7 @@ import { Layers } from "@/components/layers";
 import { hideLoading, showLoading } from "@/components/loading";
 import { restoreUi, syncOptionInputs } from "@/components/options/tabs/options-tab";
 import { is3dView } from "@/components/options/view-mode";
+import { RealmData } from "@/components/realm-data";
 import { setSeed } from "@/components/seed";
 import { initShell, warnIfServerless } from "@/components/shell";
 import { clearMainTip, tip } from "@/components/tooltips";
@@ -50,6 +51,7 @@ export type GenerationConfig = { seed?: string; graph?: GridGraph; width?: numbe
 /** Generate a whole new world */
 export async function generate(config?: GenerationConfig): Promise<void> {
   try {
+    RealmData.reset();
     const { seed: precreatedSeed, graph: precreatedGraph, width, height, points } = config || {};
     Options.setGraphSize(width, height);
     setSeed(precreatedSeed);

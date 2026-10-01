@@ -6,6 +6,7 @@ import { registerMap } from "@/components/lifecycle";
 import { pickMapFile } from "@/components/options/io-panes";
 import { syncOptionInputs } from "@/components/options/tabs/options-tab";
 import { applyPerformanceSettings } from "@/components/performance";
+import { RealmData } from "@/components/realm-data";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { undraw } from "@/components/undraw";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
@@ -361,6 +362,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
     pack.addedLabels = data[47] ? JSON.parse(data[47]) : [];
     pack.relief = data[49] ? JSON.parse(data[49]) : [];
     pack.journeys = data[52] ? JSON.parse(data[52]) : [];
+    RealmData.restore(data[53] ? JSON.parse(data[53]) : undefined);
 
     if (data[31]) {
       const namesDL = data[31].split("/");

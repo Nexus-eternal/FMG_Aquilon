@@ -3,6 +3,7 @@
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
+import { RealmData } from "@/components/realm-data";
 import { tip } from "@/components/tooltips";
 import { GraphOverride } from "@/generators/graph-override";
 import { Services } from "@/services";
@@ -19,6 +20,9 @@ const toDropbox = (): Promise<void> => save(writeToDropbox);
 
 async function save(write: Writer): Promise<void> {
   if (customization) return tip("Map cannot be saved in EDIT mode, please complete the edit and retry", false, "error");
+  if (RealmData.active !== "surface") {
+    return tip("Return to the Surface before saving the multi-Realm map", false, "error");
+  }
   closeDialogs("#alert");
 
   try {
@@ -49,6 +53,8 @@ async function save(write: Writer): Promise<void> {
 }
 
 function prepareMapData(): string {
+  if (RealmData.has(RealmData.active)) RealmData.save(RealmData.active, pack);
+
   const date = new Date();
   const dateString = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
   const license = "File can be loaded in azgaar.github.io/Fantasy-Map-Generator";
@@ -73,6 +79,7 @@ function prepareMapData(): string {
   );
   const layers = JSON.stringify(Layers.state);
   const graphOverride = JSON.stringify(GraphOverride.state);
+  const realmData = JSON.stringify(RealmData.state);
 
   // save svg
   const cloneEl = ensureEl("map").cloneNode(true) as SVGSVGElement;
@@ -192,7 +199,8 @@ function prepareMapData(): string {
     relief,
     layers,
     graphOverride,
-    journeys
+    journeys,
+    realmData
   ].join("\r\n");
   return mapData;
 }

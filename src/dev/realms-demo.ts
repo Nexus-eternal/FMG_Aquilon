@@ -3,6 +3,7 @@ import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { type Layer, Layers, type LayersState } from "@/components/layers";
 import { syncOptionInputs } from "@/components/options/tabs/options-tab";
 import type { OptionsData } from "@/components/options-schema";
+import { RealmData } from "@/components/realm-data";
 import { Realms } from "@/components/realms";
 import { GenerationPipeline } from "@/generators/generation-pipeline";
 import { scaleHeightmap } from "@/generators/heightmap-transform";
@@ -153,6 +154,7 @@ async function generateSkyWorld(): Promise<void> {
 
   try {
     surfaceWorld = captureWorld();
+    RealmData.save("surface", surfaceWorld.pack);
     const realmOptions = structuredClone(surfaceWorld.options);
     realmOptions.map.seed = `${surfaceWorld.options.map.seed}-sky`;
     realmOptions.generation.template = "archipelago";
@@ -166,6 +168,11 @@ async function generateSkyWorld(): Promise<void> {
       transformHeightmap: graph => scaleHeightmap(graph, { scale: 0.32, borderRatio: 0.08 })
     });
 
+    // A loaded .map can carry edits made with the standard editors in this Realm.
+    // The deterministic generation above recreates its geography, then the scoped
+    // data replaces only the Realm-owned entities on the shared cell indices.
+    if (RealmData.has(REALM_ID)) RealmData.activate(REALM_ID, pack);
+
     const realmLayers = structuredClone(surfaceWorld.layers);
     realmLayers.active = [...new Set([...realmLayers.active, "routes", "markers", "lakes"])];
     setRealmVisibility(realmLayers, false);
@@ -174,9 +181,11 @@ async function generateSkyWorld(): Promise<void> {
     Layers.drawAll();
 
     skyWorld = captureWorld();
+    RealmData.save(REALM_ID, skyWorld.pack);
     updateSnapshots();
 
     applyWorld(surfaceWorld);
+    RealmData.setActive("surface");
     Layers.set([...Layers.state.active, ...REALM_LAYER_IDS]);
     Realms.setVisibility(REALM_ID, true);
     surfaceWorld = captureWorld();
@@ -345,16 +354,20 @@ async function toggleWorld(): Promise<void> {
 
   if (activeWorld === "surface") {
     surfaceWorld = captureWorld();
+    RealmData.save("surface", surfaceWorld.pack);
     updateSurfaceBackdrop();
     activeWorld = "sky";
     applyWorld(skyWorld);
+    RealmData.setActive(REALM_ID);
     setDemoStatus("Editing Sky Realm over the live Surface backdrop. Sky oceans are transparent.");
   } else {
     Layers.drawAll();
     skyWorld = captureWorld();
+    RealmData.save(REALM_ID, skyWorld.pack);
     updateSnapshots();
     activeWorld = "surface";
     applyWorld(surfaceWorld);
+    RealmData.setActive("surface");
     setDemoStatus("Sky Realm overlay refreshed from the edited world.");
   }
 
