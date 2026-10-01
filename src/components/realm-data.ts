@@ -1,6 +1,8 @@
+import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
+import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
 
-export const REALM_DATA_VERSION = 1;
+export const REALM_DATA_VERSION = 2;
 
 export interface RealmScopedData {
   burgs: PackedGraph["burgs"];
@@ -12,6 +14,7 @@ export interface RealmScopedData {
     burg: number[];
     routes: PackedGraph["cells"]["routes"];
   };
+  terrain?: RealmTerrainData;
 }
 
 export interface RealmDataState {
@@ -24,7 +27,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function capture(graph: PackedGraph): RealmScopedData {
+function capture(graph: PackedGraph, terrainGraph?: GridGraph, previous?: RealmScopedData): RealmScopedData {
   return {
     burgs: clone(graph.burgs),
     markers: clone(graph.markers),
@@ -34,15 +37,16 @@ function capture(graph: PackedGraph): RealmScopedData {
     cells: {
       burg: Array.from(graph.cells.burg),
       routes: clone(graph.cells.routes)
-    }
+    },
+    terrain: terrainGraph ? captureRealmTerrain(terrainGraph) : previous?.terrain
   };
 }
 
 function isRealmDataState(value: unknown): value is RealmDataState {
   if (!value || typeof value !== "object") return false;
-  const state = value as Partial<RealmDataState>;
+  const state = value as { version?: unknown; activeRealmId?: unknown; realms?: unknown };
   return (
-    state.version === REALM_DATA_VERSION &&
+    (state.version === 1 || state.version === REALM_DATA_VERSION) &&
     typeof state.activeRealmId === "string" &&
     Boolean(state.realms) &&
     typeof state.realms === "object" &&
@@ -76,9 +80,19 @@ export class RealmDataRegistry {
     return clone(data);
   }
 
-  save(id: string, graph: PackedGraph): void {
+  save(id: string, graph: PackedGraph, terrainGraph?: GridGraph): void {
     if (!id) throw new Error("Realm id cannot be empty");
-    this.realms.set(id, capture(graph));
+    this.realms.set(id, capture(graph, terrainGraph, this.realms.get(id)));
+  }
+
+  hasTerrain(id: string): boolean {
+    return Boolean(this.realms.get(id)?.terrain);
+  }
+
+  applyTerrain(id: string, graph: GridGraph): void {
+    const terrain = this.realms.get(id)?.terrain;
+    if (!terrain) throw new Error(`Realm terrain ${id} is not registered`);
+    applyRealmTerrain(graph, terrain);
   }
 
   activate(id: string, graph: PackedGraph): void {
@@ -118,3 +132,9 @@ export class RealmDataRegistry {
 }
 
 export const RealmData = new RealmDataRegistry();
+
+declare global {
+  // biome-ignore lint/suspicious/noRedeclare: exposed on window for extensions and test automation
+  var RealmData: RealmDataRegistry;
+}
+globalThis.RealmData = RealmData;

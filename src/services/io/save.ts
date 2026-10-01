@@ -2,6 +2,7 @@
 
 import { closeDialogs } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
+import { MapSaveContext } from "@/components/map-save-context";
 import { Notes } from "@/components/notes";
 import { RealmData } from "@/components/realm-data";
 import { tip } from "@/components/tooltips";
@@ -20,11 +21,9 @@ const toDropbox = (): Promise<void> => save(writeToDropbox);
 
 async function save(write: Writer): Promise<void> {
   if (customization) return tip("Map cannot be saved in EDIT mode, please complete the edit and retry", false, "error");
-  if (RealmData.active !== "surface") {
-    return tip("Return to the Surface before saving the multi-Realm map", false, "error");
-  }
   closeDialogs("#alert");
 
+  const restoreMapContext = await MapSaveContext.prepare();
   try {
     await write(prepareMapData(), `${getFileName()}.map`);
   } catch (error) {
@@ -49,6 +48,8 @@ async function save(write: Writer): Promise<void> {
       },
       position: { my: "center", at: "center", of: "svg" }
     });
+  } finally {
+    await restoreMapContext();
   }
 }
 

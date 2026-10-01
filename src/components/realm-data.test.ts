@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
 import { REALM_DATA_VERSION, RealmDataRegistry } from "./realm-data";
 
@@ -24,6 +25,20 @@ function createGraph(): PackedGraph {
     zones: [{ i: 2, name: "Calm air", type: "weather", color: "#fff", cells: [1] }],
     addedLabels: [{ i: 4, x: 10, y: 20, label: { text: "Upper Sky", group: "added" } }]
   } as unknown as PackedGraph;
+}
+
+function createTerrainGraph(): GridGraph {
+  return {
+    cells: {
+      i: [0, 1, 2],
+      h: Uint8Array.from([10, 30, 60]),
+      t: Int8Array.from([-1, 1, 2]),
+      f: Uint16Array.from([1, 2, 2]),
+      temp: Int8Array.from([-4, 0, 8]),
+      prec: Uint8Array.from([10, 20, 30])
+    },
+    features: [0, { i: 1, type: "ocean" }, { i: 2, type: "island" }]
+  } as unknown as GridGraph;
 }
 
 let registry: RealmDataRegistry;
@@ -69,7 +84,7 @@ describe("RealmDataRegistry", () => {
   });
 
   it("round-trips through the serializable versioned state", () => {
-    registry.save("sky", createGraph());
+    registry.save("sky", createGraph(), createTerrainGraph());
     registry.setActive("sky");
 
     const serialized = JSON.stringify(registry.state);
@@ -77,6 +92,43 @@ describe("RealmDataRegistry", () => {
     restored.restore(JSON.parse(serialized));
 
     expect(restored.state).toEqual(registry.state);
+    expect(restored.state.version).toBe(REALM_DATA_VERSION);
+  });
+
+  it("restores Realm terrain onto the same shared grid", () => {
+    const terrainGraph = createTerrainGraph();
+    registry.save("sky", createGraph(), terrainGraph);
+    terrainGraph.cells.h.fill(0);
+
+    registry.applyTerrain("sky", terrainGraph);
+
+    expect(Array.from(terrainGraph.cells.h)).toEqual([10, 30, 60]);
+    expect(terrainGraph.features[2].type).toBe("island");
+  });
+
+  it("keeps stored terrain when a later entity-only save refreshes the Realm", () => {
+    const graph = createGraph();
+    const terrainGraph = createTerrainGraph();
+    registry.save("sky", graph, terrainGraph);
+    graph.markers[0].name = "New marker name";
+
+    registry.save("sky", graph);
+    terrainGraph.cells.h.fill(0);
+    registry.applyTerrain("sky", terrainGraph);
+
+    expect(registry.get("sky").markers[0].name).toBe("New marker name");
+    expect(Array.from(terrainGraph.cells.h)).toEqual([10, 30, 60]);
+  });
+
+  it("migrates version 1 entity-only data", () => {
+    registry.save("sky", createGraph());
+    const legacy = { ...registry.state, version: 1 };
+    const restored = new RealmDataRegistry();
+
+    restored.restore(legacy);
+
+    expect(restored.has("sky")).toBe(true);
+    expect(restored.hasTerrain("sky")).toBe(false);
     expect(restored.state.version).toBe(REALM_DATA_VERSION);
   });
 

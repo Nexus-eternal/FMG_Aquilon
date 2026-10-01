@@ -5,7 +5,12 @@ import { Population } from "@/generators/population-generator";
 import type { GridGraph } from "@/types/GridGraph";
 import { Coordinates } from "./coordinates";
 
-const generationPipelineSteps = [
+type GenerationContext = {
+  graph?: GridGraph; // pre-created grid to use instead of generating one
+  transformHeightmap?: (graph: GridGraph) => void;
+};
+
+const terrainGenerationSteps = [
   { id: "grid", run: ({ graph }) => Grid.prepare(graph) },
   { id: "heightmap", run: () => HeightmapGenerator.generate() },
   { id: "transformHeightmap", run: ({ transformHeightmap }) => transformHeightmap?.(grid) },
@@ -14,7 +19,10 @@ const generationPipelineSteps = [
   { id: "nearSeaLakes", run: () => Grid.openNearSeaLakes() },
   { id: "mapSize", run: () => Coordinates.generate() },
   { id: "temperatures", run: () => Temperature.generate() },
-  { id: "precipitation", run: () => Precipitation.generate() },
+  { id: "precipitation", run: () => Precipitation.generate() }
+] as const satisfies PipelineStep<string, GenerationContext>[];
+
+const packGenerationSteps = [
   {
     id: "clearPack",
     run: () => {
@@ -54,15 +62,21 @@ const generationPipelineSteps = [
   { id: "journeys", run: () => Journeys.generate() }
 ] as const satisfies PipelineStep<string, GenerationContext>[];
 
+const generationPipelineSteps = [...terrainGenerationSteps, ...packGenerationSteps] as const;
+
 type GenerationPipelineStepId = (typeof generationPipelineSteps)[number]["id"];
 
-type GenerationContext = {
-  graph?: GridGraph; // pre-created grid to use instead of generating one
-  transformHeightmap?: (graph: GridGraph) => void;
-};
 export const GenerationPipeline = new Pipeline<GenerationPipelineStepId, GenerationContext>(
   "Generation Pipeline",
   generationPipelineSteps
+);
+
+type PackGenerationPipelineStepId = (typeof packGenerationSteps)[number]["id"];
+
+/** Rebuild a Realm's derived pack after its saved terrain is applied to the shared grid. */
+export const PackGenerationPipeline = new Pipeline<PackGenerationPipelineStepId, GenerationContext>(
+  "Realm Pack Generation Pipeline",
+  packGenerationSteps
 );
 
 const erasePipelineSteps = [
