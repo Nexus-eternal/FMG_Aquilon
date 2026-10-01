@@ -10,9 +10,9 @@ afterEach(() => vi.restoreAllMocks());
 
 it("retains underwater and locked native markers when regenerating Surface markers", () => {
   pack.markers = [
-    { i: 1, cell: 0, x: 0, y: 0, depth: 0 },
-    { i: 2, cell: 1, x: 1, y: 1, lock: true },
-    { i: 3, cell: 2, x: 2, y: 2 }
+    { i: 1, cell: 0, x: 0, y: 0, depth: 0, type: "test", icon: "⚓", name: "Underwater" },
+    { i: 2, cell: 1, x: 1, y: 1, lock: true, type: "test", icon: "⚓", name: "Locked" },
+    { i: 3, cell: 2, x: 2, y: 2, type: "test", icon: "⚓", name: "Surface" }
   ];
   const generator = Markers as unknown as { generateTypes(): void };
   vi.spyOn(generator, "generateTypes").mockImplementation(() => {});
