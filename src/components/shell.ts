@@ -12,6 +12,9 @@ import { fitMapToScreen } from "./canvas";
 /** Wire the window up: the svg layer scaffold and the browser-level behaviours around it. Called by boot() */
 export function initShell(): void {
   Layers.init(); // create the svg layer groups the renderers draw into
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get("realmDemo") === "1") {
+    void import("@/dev/realms-demo").then(({ installRealmsDemo }) => installRealmsDemo());
+  }
 
   window.addEventListener("resize", onResize);
   window.addEventListener("vite:preloadError", onChunkLoadError);
