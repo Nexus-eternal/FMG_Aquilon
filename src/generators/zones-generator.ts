@@ -1,11 +1,12 @@
 import { max, mean } from "d3";
+import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { gauss, getAdjective, P, ra, rand, rw } from "../utils";
 
 declare global {
   var Zones: ZonesModule;
 }
 
-export interface Zone {
+export interface Zone extends VerticalCoordinates {
   i: number;
   name: string;
   type: string;

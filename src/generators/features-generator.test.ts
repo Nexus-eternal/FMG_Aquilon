@@ -95,6 +95,14 @@ describe("feature user data across a re-markup", () => {
     expect(() => Features.restoreUserData([])).not.toThrow();
   });
 
+  it("keeps altitude when heightmap editing renumbers an unnamed island", () => {
+    setPack([1, 1, 1, 0, 0, 0], [EMPTY, { i: 1, name: "", type: "island", altitude: 3200 }]);
+    const captured = capture();
+    setPack([4, 4, 4, 0, 0, 0], [EMPTY, EMPTY, EMPTY, EMPTY, { i: 4, type: "island" }]);
+    Features.restoreUserData(captured);
+    expect(pack.features[4].altitude).toBe(3200);
+  });
+
   it("carries own coastline settings to the new feature", () => {
     const coastline = { enabled: false } as Feature["coastline"];
     setPack([1, 1, 1, 2, 2, 2], [EMPTY, { i: 1, type: "lake" }, { i: 2, type: "island", coastline }]);

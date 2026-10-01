@@ -7,10 +7,15 @@ import type { OptionsData } from "@/components/options-schema";
 import { RealmData } from "@/components/realm-data";
 import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
 import { Realms } from "@/components/realms";
+import {
+  installVerticalCoordinatesEditor,
+  refreshVerticalCoordinatesEditor
+} from "@/controllers/vertical-coordinates-editor";
 import { GenerationPipeline, PackGenerationPipeline } from "@/generators/generation-pipeline";
 import { scaleHeightmap } from "@/generators/heightmap-transform";
 import { Styles } from "@/generators/styles";
 import type { StyleLayerId, Styles as StylesData } from "@/generators/styles-schema";
+import { drawVerticalFilter } from "@/renderers/draw-vertical-filter";
 import type { PackedGraph } from "@/types/PackedGraph";
 import { createRealmCloudSvg } from "./realm-clouds";
 
@@ -119,8 +124,14 @@ export function installRealmsDemo(): void {
     layerIds: [...REALM_LAYER_IDS]
   });
   MapSaveContext.register(prepareSurfaceForSave);
+  Layers.register(
+    { id: "realmVerticalFilter", parent: "viewbox", permanent: true, draw: drawVerticalFilter },
+    { before: "rulers" }
+  );
 
   showDemoControls();
+  const viewbox = document.getElementById("viewbox");
+  if (viewbox) new MutationObserver(drawVerticalFilter).observe(viewbox, { childList: true, subtree: true });
   window.addEventListener("map:generated", () => window.setTimeout(() => void onMapGenerated()));
   if (pack.cells?.i?.length) window.setTimeout(() => void onMapGenerated());
 }
@@ -183,6 +194,7 @@ async function generateSkyWorld(): Promise<void> {
     // The restored or newly generated terrain above rebuilds the derived pack, then
     // scoped data replaces only the Realm-owned entities on the shared cell indices.
     if (RealmData.has(REALM_ID)) RealmData.activate(REALM_ID, pack);
+    RealmData.setActive(REALM_ID);
 
     const realmLayers = structuredClone(surfaceWorld.layers);
     realmLayers.active = [...new Set([...realmLayers.active, "routes", "markers", "lakes"])];
@@ -195,16 +207,17 @@ async function generateSkyWorld(): Promise<void> {
     RealmData.save(REALM_ID, skyWorld.pack, grid);
     updateSnapshots();
 
-    applyWorld(surfaceWorld);
+    applyWorld(surfaceWorld, "surface");
     RealmData.setActive("surface");
     Layers.set([...Layers.state.active, ...REALM_LAYER_IDS]);
     Realms.setVisibility(REALM_ID, true);
     surfaceWorld = captureWorld();
     setDemoStatus("Sky Realm uses a real generated world. Enter it to edit with the standard Tools menu.");
+    refreshVerticalCoordinatesEditor();
   } catch (error) {
     console.error("Could not generate Sky Realm", error);
     setDemoStatus("Sky Realm generation failed. Check the browser console.");
-    if (surfaceWorld) applyWorld(surfaceWorld);
+    if (surfaceWorld) applyWorld(surfaceWorld, "surface");
   } finally {
     generating = false;
   }
@@ -220,7 +233,8 @@ function captureWorld(): WorldContext {
   };
 }
 
-function applyWorld(world: WorldContext): void {
+function applyWorld(world: WorldContext, realmId: "surface" | "sky"): void {
+  RealmData.setActive(realmId);
   applyRealmTerrain(grid, world.terrain);
   globalThis.pack = world.pack;
   globalThis.options = world.options;
@@ -368,7 +382,7 @@ async function toggleWorld(): Promise<void> {
     RealmData.save("surface", surfaceWorld.pack, grid);
     updateSurfaceBackdrop();
     activeWorld = "sky";
-    applyWorld(skyWorld);
+    applyWorld(skyWorld, "sky");
     RealmData.setActive(REALM_ID);
     setDemoStatus("Editing Sky Realm over the live Surface backdrop. Sky oceans are transparent.");
   } else {
@@ -377,12 +391,13 @@ async function toggleWorld(): Promise<void> {
     RealmData.save(REALM_ID, skyWorld.pack, grid);
     updateSnapshots();
     activeWorld = "surface";
-    applyWorld(surfaceWorld);
+    applyWorld(surfaceWorld, "surface");
     RealmData.setActive("surface");
     setDemoStatus("Sky Realm overlay refreshed from the edited world.");
   }
 
   updateSwitchButton();
+  refreshVerticalCoordinatesEditor();
 }
 
 async function prepareSurfaceForSave(): Promise<() => void> {
@@ -395,7 +410,7 @@ async function prepareSurfaceForSave(): Promise<() => void> {
   skyWorld = captureWorld();
   RealmData.save(REALM_ID, skyWorld.pack, grid);
   activeWorld = "surface";
-  applyWorld(surfaceWorld);
+  applyWorld(surfaceWorld, "surface");
   RealmData.setActive("surface");
   updateSwitchButton();
 
@@ -403,7 +418,7 @@ async function prepareSurfaceForSave(): Promise<() => void> {
     surfaceWorld = captureWorld();
     RealmData.save("surface", surfaceWorld.pack, grid);
     activeWorld = "sky";
-    applyWorld(skyWorld);
+    applyWorld(skyWorld, "sky");
     RealmData.setActive(REALM_ID);
     updateSwitchButton();
   };
@@ -429,6 +444,9 @@ function showDemoControls(): void {
     <button id="realmDemoSwitch" type="button">Enter Sky Realm editor</button>
   `;
   document.getElementById("layersContent")?.prepend(controls);
+  installVerticalCoordinatesEditor(controls, () => {
+    RealmData.save(REALM_ID, pack, grid);
+  });
   controls.querySelector("button")?.addEventListener("click", () => void toggleWorld());
   bindAtmosphereSlider("realmDemoCloudDensity", value => (cloudDensity = value));
   bindAtmosphereSlider("realmDemoGroundVisibility", value => (groundVisibility = value));
