@@ -3,7 +3,9 @@ import { closeDialogs, confirmationDialog, destroyDialog } from "@/components/di
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
 import { clearMainTip, tip } from "@/components/tooltips";
+import { validateWaterRoute } from "@/components/underwater-native";
 import { Controllers } from "@/controllers";
+import { appendDepthFields } from "@/controllers/vertical-fields";
 import { type Route, UNNAMED_ROUTE } from "@/generators/routes-generator";
 import { redrawRoute as redrawRouteShape, setEditedRoute } from "@/renderers/draw-routes";
 import { speak } from "@/utils";
@@ -37,6 +39,15 @@ function open(id: string): void {
   {
     const route = getRoute();
     updateRouteData(route);
+    appendDepthFields(
+      "routeBody",
+      route,
+      () => route.points.map(p => p[2]),
+      () => {
+        if (route.depth !== undefined) validateWaterRoute(route.points, route.depth);
+        redrawRoute(route);
+      }
+    );
     drawControlPoints(route.points);
     drawCells(route.points);
     updateLockIcon();
@@ -166,13 +177,24 @@ function dragControlPoint(event: any): void {
     const y = rn(dragEvent.y, 2);
     const cellId = Pack.findCell(x, y);
 
+    try {
+      if (route.depth !== undefined) {
+        const proposed = route.points.map((point, index) => (index === pointIndex ? [x, y, cellId!] : point));
+        validateWaterRoute(proposed, route.depth);
+      }
+    } catch (error) {
+      tip((error as Error).message, false, "error");
+      return;
+    }
+
     this.__data__ = route.points[pointIndex] = [x, y, cellId!];
     redrawRoute(route);
     drawCells(route.points);
   });
 
   event.on("end", () => {
-    const movedToCell = Pack.findCell(event.x, event.y);
+    const movedToCell = route.points[pointIndex][2];
+    drawControlPoints(route.points);
 
     if (movedToCell !== initCell) {
       const prev = route.points[pointIndex - 1];
@@ -206,6 +228,16 @@ function addControlPoint(this: any, event: any): void {
   const isNewCell = !route.points.some(p => p[2] === cellId);
 
   const index = getSegmentId(route.points as [number, number][], point as [number, number], 2);
+  try {
+    if (route.depth !== undefined) {
+      const proposed = [...route.points];
+      proposed.splice(index, 0, point);
+      validateWaterRoute(proposed, route.depth);
+    }
+  } catch (error) {
+    tip((error as Error).message, false, "error");
+    return;
+  }
   route.points.splice(index, 0, point);
 
   // check if added point is in new cell
@@ -273,6 +305,16 @@ function handleControlPointClick(this: any): void {
   }
 
   function removeControlPoint(controlPoint: any): void {
+    try {
+      if (route.depth !== undefined)
+        validateWaterRoute(
+          route.points.filter(p => p !== point),
+          route.depth
+        );
+    } catch (error) {
+      tip((error as Error).message, false, "error");
+      return;
+    }
     const isOnlyPointInCell = route.points.filter(p => p[2] === point[2]).length === 1;
     if (isOnlyPointInCell) {
       const prev = route.points[index - 1];

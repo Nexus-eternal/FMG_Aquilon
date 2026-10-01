@@ -7,7 +7,7 @@ export function drawStates(): void {
   const { cells, states } = pack;
 
   const renderHalo = options.app.performance.stateHalos;
-  const isolines = getIsolines(pack, cellId => cells.state[cellId], { fill: true, waterGap: true, halo: renderHalo });
+  const isolines = getIsolines(pack, cellId => cells.state[cellId], { fill: true, waterGap: false, halo: renderHalo });
 
   const clipPaths: string[] = [];
   const haloPaths: string[] = [];

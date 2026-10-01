@@ -1,3 +1,4 @@
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Zone } from "@/generators/zones-generator";
 import { ensureEl, getVertexPath } from "@/utils";
 
@@ -8,7 +9,7 @@ export function drawZones(): void {
   const { type: filterBy } = zonesFilter;
   const isFiltered = filterBy !== "all";
   const visibleZones = pack.zones.filter(
-    ({ hidden, cells, type }) => !hidden && cells.length && (!isFiltered || type === filterBy)
+    zone => !zone.hidden && zone.cells.length && (!isFiltered || zone.type === filterBy) && isUnderwaterVisible(zone)
   );
 
   ensureEl("zones").innerHTML = visibleZones.map(drawZone).join("");

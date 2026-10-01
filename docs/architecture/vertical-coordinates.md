@@ -28,15 +28,16 @@ Surface scope clears the active filter before rendering or saving its canonical 
 
 This is a first Sky slice, not full 3D rendering: numeric altitude does not physically
 raise islands on the globe. State/province labels and other non-altitude-aware layers
-are not yet individually assigned an altitude. Underwater editing, depth filtering,
-domain UI and cross-Realm route profiles remain separate work.
+are not yet individually assigned an altitude. Underwater editing and depth filtering
+are integrated into native Tools and editors; cross-Realm route profiles remain
+separate work. See `underwater-domain.md` for the native Underwater contract.
 
 ## Underwater foundation
 
 `validateUnderwaterPlacement` checks depth and requires every referenced Surface
 cell to be water (`h < 20`). Invalid indices and empty placements are rejected.
-This is a pure data helper; it does not add an underwater geography or expose a
-finished Underwater editor.
+This pure helper is shared by native underwater placement and editors. Underwater
+uses Surface water, not a second geography or a duplicate entity editor.
 
 ## Verification (2026-10-01)
 

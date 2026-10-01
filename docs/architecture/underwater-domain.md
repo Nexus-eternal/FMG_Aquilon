@@ -1,81 +1,85 @@
-# Underwater domain foundation
+# Underwater native integration
 
-Underwater is a domain over Surface water, not a parallel Realm. The first slice
-provides state, persistence, a cell-based editor and an SVG domain layer.
+Underwater uses Surface water cells, not a separate terrain or parallel Realm.
+The former annotation editor and SVG renderer were removed: cities are native
+Burgs, factions are native States, and routes, markers and zones use their existing
+models, Tools, overviews, editors and .map serialization.
 
-## Ownership
+## Workflow
 
-`RealmData.underwater` owns a domain registry. `.map` record 53 carries its optional
-`domains.underwater` state alongside RealmData v2. Existing maps without domains
-start empty. Entity-only Realm saves and switching Sky/Surface leave the domain
-alone. Reset/new map clears it. No terrain, grid, climate or separate ocean is stored.
+Choose Tools → Add → Environment: Underwater and a depth in metres. Existing
+Burg, Route and Marker buttons create underwater objects. States Editor → Add
+creates a native state with a native capital. Zones Editor → Add creates a zone
+at the chosen depth; its existing paint editor accepts water and rejects land.
+Layers contains only non-destructive depth visibility controls, not entity CRUD.
 
-Each entity has a domain-local numeric ID, kind, name, nonnegative finite depth in
-metres, and a footprint of canonical Surface **grid** cell IDs. IDs share one
-namespace within Underwater but can coincide with Surface/Sky IDs. Point entities
-(settlements and markers) have one cell; zones and factions have a footprint;
-routes have an ordered corridor of at least two adjacent water cells. Depth zero
-is valid. Optional faction membership references an existing faction in this domain.
-This DTO is not a complete native Burg/State schema or a replacement generator.
+Native Burg, Marker and Route editors include Environment and Depth fields.
+Zones expose depth in their existing table; a blank depth means Surface.
+Explicit zero is underwater, not missing data. Values must be finite and nonnegative.
+Changing a water city to Surface is rejected until it satisfies the native land
+placement rule. Relocation keeps one Burg per packed cell, at all depths.
 
-## Placement and terrain edits
+## Ownership and government
 
-Mutations require explicit Surface geography. Callers must pass Surface heights,
-never the temporarily active Sky terrain. All referenced cells must satisfy `h < 20`.
-Route validation checks every corridor cell and adjacency, not only endpoints.
-The corridor is not yet an arbitrary freehand polyline; future route/editor adapters
-must validate the cells crossed by their actual geometry.
+An underwater Burg can belong to an ordinary state or a dedicated underwater
+state. Its native state property is authoritative even when the water cell is
+neutral; the Burg editor exposes the native ownership choice. Capitals retain
+the native restrictions on reassignment and removal. Population statistics use
+native Burg ownership, not an assumed land cell owner.
 
-Invalid updates leave existing data unchanged. Invalid restored structure is
-rejected before replacing live registry state. Restore validates structure and
-references before geometry is available; placement is checked against current
-Surface by `audit` and `getVisible`. If a terrain edit turns water into land, the
-entity remains stored but is excluded from the visible result. `audit` reports why.
-Returning the cell to water makes the object eligible again. Nothing is silently
-deleted or moved to another cell.
+State.environment and environmentSubtype describe the state's habitat.
+They are independent of its existing government form: an underwater monarchy,
+republic or theocracy still uses the normal forms and diplomacy. State name/form
+editing exposes the habitat and free-text subtype. Dedicated states can paint
+water territory through the native state paint editor. New underwater states
+start locked, following the existing protection mechanism for manual states.
+Unlocking and regenerating a state intentionally permits its replacement.
 
-## Depth filtering
+## Geometry and visibility
 
-The filter is an inclusive minimum/maximum range. Disabling it shows all valid
-placements regardless of depth. Range filtering does not mutate entities. Getters
-return copies, so external code cannot bypass validation by mutating a read result.
-Unknown fields are omitted when entities enter the registry; domain state cannot
-smuggle in an extra terrain snapshot.
+Placement and edits require packed water cells (h < 20). Underwater routes use
+linear control-point geometry and test intermediate points at spacing no greater
+than a quarter grid interval (with a 0.5-unit floor). This is sampled validation,
+not exact polygon intersection. Add control points around shores in the existing
+route editor. Native split/join operations preserve compatible vertical coordinates.
+
+The inclusive depth filter affects native icons, Burg/route labels, emblems,
+markers, routes and zones without removing data. Data with invalid footprints
+after terrain edits remains recoverable. Underwater editing is disabled while
+Sky is active. Sky backdrop snapshots remove native deep-sea objects rather than
+baking them into the surface seen from above.
+
+Regenerating Surface Burgs, routes, markers or zones preserves manually created
+underwater counterparts. Replacing unlocked states remaps surviving underwater
+city ownership to a retained state or Neutrals, never an unrelated recycled ID.
+There is no bathymetry, depth profile, automatic underwater economy generator or
+multiple stacked cities per cell in this implementation.
+
+## Legacy saves
+
+The old registry remains a compatibility reader and depth-filter store in .map
+record 53. On load, its annotations are converted to native models: settlement →
+Burg, faction → State, route → Route, marker → Marker, zone → Zone. A faction
+without a settlement needs a native capital and receives one in its footprint.
+Grid footprints are mapped to Surface packed cells. A successful conversion clears
+the old entity list, so reopening does not create duplicates.
+
+Conversion is all-or-nothing. Invalid geometry or a one-city-per-cell collision
+rolls back native data and retains the complete original registry. The UI reports
+the reason; it does not silently move a city or discard the original save data.
+Original annotation-only faction relationships on non-city objects are not a new
+native political ownership model. Keep the original .map as a backup.
 
 ## Verification
 
-The full test run passed: 119 files, 1271 tests. Production build and TypeScript
-passed. Tests cover water/land threshold, zero/invalid depths, invalid cell IDs,
-point footprints, complete route corridors, adjacency, copy isolation, faction
-references/removal protection, non-destructive filters and terrain-edit quarantine,
-JSON round-trip, old maps, reset and RealmData integration.
+Unit tests cover one-city occupancy, water placement, zero/invalid depth, route
+segments crossing land, non-destructive filters, native state population ownership,
+depth editing, successful legacy migration, repeat-load idempotence and rollback.
+Browser checks include native creation, city properties and state reassignment,
+native route editing, state creation/government/subtype, water-zone painting and
+browser-storage .map save/load. Downloaded-file round-trip is not claimed.
 
-## Editor
-
-Layers → Underwater — depth editor is available in both normal and Realm demo
-builds. Choose a kind, name and depth, then Add on map. Points snap to the clicked
-Surface water cell. Routes use two endpoints and the existing FMG pathfinder to
-find a water-only corridor. Zones and factions collect clicked water cells; Finish
-area commits them, Cancel/Escape abandons only the draft. Pick an entity in the
-list or click its shape to edit name/depth/faction, redraw its footprint or delete it.
-Removal of a faction with members is blocked until members are reassigned.
-
-The domain uses the existing layer group for visibility, opacity, locking and
-order. Show Underwater layer also clears the demo's cloud veil for legibility.
-Editing is disabled in Sky; switching back restores Surface objects. Surface
-backdrop snapshots exclude the Underwater layer so it cannot leak into Sky.
-
-The SVG renderer sends route segments through shared Voronoi-edge midpoints,
-keeping each segment inside the validated water cells instead of cutting corners
-through neighbouring land. Point settlements are domain annotations, not native
-Burg economy/population simulation. Factions are domain memberships and painted
-footprints, not native State diplomacy. Bathymetry and depth profiles remain future
-features; every entity currently has one scalar depth.
-
-Browser checks cover land rejection, city creation/edit/move, a water route, painted
-faction/zone, membership, filtering without data loss, Sky isolation, and save from
-Sky followed by browser-storage .map load. Four objects, depths and membership
-were restored. A full downloaded-file round-trip is not claimed here.
-The final browser pass also placed a depth-zero marker and edited the city's depth
-after loading. Placement uses a document-level capture listener because loading
-replaces the SVG map element; a regression test covers this replacement.
+The rejected annotation panel was the architectural mistake: moving it between
+tabs would not fix surrogate cities, duplicate IDs or missing native editors.
+The correction extends native models and their restrictions at the actual points
+that previously assumed every city or state lived on land.

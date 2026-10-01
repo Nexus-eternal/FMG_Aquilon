@@ -1,5 +1,6 @@
 import { forceCollide, forceSimulation, type SimulationNodeDatum, timeout } from "d3";
 import { Layers } from "@/components/layers";
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Province } from "@/generators/provinces-generator";
 import { EmblemRenderer } from "@/renderers/emblems/renderer";
 import { Scene, ViewportLayers, type ViewportRenderContext } from "@/renderers/viewport/viewport-renderer";
@@ -77,7 +78,7 @@ export function drawEmblems(): void {
   const { states, provinces, burgs } = pack;
 
   const valid = {
-    burg: burgs.filter(isMapped),
+    burg: burgs.filter(burg => isMapped(burg) && isUnderwaterVisible(burg)),
     province: (provinces as Province[]).filter(isMapped),
     state: states.filter(isMapped)
   };

@@ -13,6 +13,8 @@ import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
 import type { FillBoxElement } from "@/components/shared/fill-box";
 import { tip } from "@/components/tooltips";
+import { getPlacementDepth } from "@/components/underwater-native";
+import { validateUnderwaterPlacement } from "@/components/vertical-coordinates";
 import { Controllers } from "@/controllers";
 import type { Zone } from "@/generators/zones-generator";
 import { clearLegend, drawLegend, hasLegend } from "@/renderers/draw-legend";
@@ -29,6 +31,7 @@ type ZoneRow = { zone: Zone; area: number; rural: number; urban: number; populat
 const columns: EditorColumn<ZoneRow>[] = [
   { key: "description", label: "Description", width: "13em", permanent: true },
   { key: "type", label: "Type", width: "7em" },
+  { key: "depth", label: "Depth (m)", width: "7em" },
   { key: "cells", label: "Cells", width: "5em" },
   { key: "area", label: "Area", width: "7em" },
   { key: "population", label: "Population", width: "6em" },
@@ -142,6 +145,21 @@ function renderDialog(): void {
 
     if (target.classList.contains("zoneName")) changeDescription(zone, target.value);
     else if (target.classList.contains("zoneType")) changeType(zone, target.value);
+    else if (target.classList.contains("zoneDepth")) {
+      try {
+        if (target.value === "") delete zone.depth;
+        else {
+          const depth = target.valueAsNumber;
+          if (zone.cells.length) validateUnderwaterPlacement(depth, zone.cells, pack.cells.h);
+          else if (!Number.isFinite(depth) || depth < 0) throw new Error("Enter a non-negative depth.");
+          zone.depth = depth;
+        }
+        Layers.draw("zones");
+      } catch (error) {
+        tip((error as Error).message, false, "error");
+        target.value = zone.depth === undefined ? "" : String(zone.depth);
+      }
+    }
   });
 
   $(body).sortable({
@@ -201,13 +219,15 @@ function renderZonesPage(view: TableView<ZoneRow>): void {
         options.map.units.population.urbanization.rate) *
     options.map.units.population.scale;
   const percentage = body.dataset.type === "percentage";
-  const lines = view.rows.map(({ zone: { i, name, type, cells, color, hidden }, area, rural, urban, population }) => {
-    const populationTip = `Total population: ${si(population)}; Rural population: ${si(rural)}; Urban population: ${si(urban)}. Click to change`;
-    const focused = select<SVGElement, unknown>("#deftemp").select(`#fog #focusZone${i}`).size();
+  const lines = view.rows.map(
+    ({ zone: { i, name, type, cells, color, hidden, depth }, area, rural, urban, population }) => {
+      const populationTip = `Total population: ${si(population)}; Rural population: ${si(rural)}; Urban population: ${si(urban)}. Click to change`;
+      const focused = select<SVGElement, unknown>("#deftemp").select(`#fog #focusZone${i}`).size();
 
-    return /* html */ `<div class="states" data-id="${i}" style="${hidden ? "opacity: 0.5" : ""}">
+      return /* html */ `<div class="states" data-id="${i}" style="${hidden ? "opacity: 0.5" : ""}">
       <div data-col="description" style="display:flex; align-items:center"><fill-box fill="${color}"></fill-box><input data-tip="Zone description. Click and type to change" style="width: 11em" class="zoneName" value="${name}" autocorrect="off" spellcheck="false"></div>
       <div data-col="type"><input data-tip="Zone type. Click and type to change" class="zoneType" value="${type}"></div>
+      <div data-col="depth"><input class="zoneDepth" type="number" min="0" step="100" style="width:6em" value="${depth ?? ""}" data-tip="Depth below sea level; blank means Surface" /></div>
       <div data-col="cells"><span data-tip="Cells count" class="icon-check-empty"></span><span data-tip="Cells count" class="stateCells">${percentage ? `${rn((cells.length / pack.cells.i.length) * 100, 2)}%` : cells.length}</span></div>
       <div data-col="area"><span data-tip="Zone area" class="icon-map-o" style="padding-right: 2px"></span><span data-tip="Zone area" class="biomeArea">${percentage ? `${rn((area / totalArea) * 100, 2)}%` : `${si(area)} ${getAreaUnit()}`}</span></div>
       <div data-col="population"><span data-tip="${populationTip}" class="icon-male"></span><span data-tip="${populationTip}" class="zonePopulation pointer">${percentage ? `${rn((population / totalPopulation) * 100, 2)}%` : si(population)}</span></div>
@@ -217,7 +237,8 @@ function renderZonesPage(view: TableView<ZoneRow>): void {
       <span data-col="visibility" data-tip="Toggle zone visibility" class="zoneHide icon-eye ${cells.length ? "" : " placeholder"}"></span>
       <span data-col="remove" data-tip="Remove zone" class="zoneRemove icon-trash-empty"></span>
     </div>`;
-  });
+    }
+  );
 
   body.innerHTML = lines.join("");
 
@@ -297,7 +318,9 @@ function openPaintEditor(): void {
       { id: -1, name: "No zone", color: "#ffffff" },
       ...visibleZones.map(zone => ({ id: zone.i, name: zone.name, color: zone.color }))
     ],
-    landOnlyControl: true,
+    landOnlyControl: getPlacementDepth() === undefined,
+    filterCell: (cell, _current, next) =>
+      next === -1 || visibleZones.find(z => z.i === next)?.depth === undefined || pack.cells.h[cell] < 20,
     getValue: cell => zonesByCell.get(cell) ?? [],
     onApply: changes => applyZonePaint(visibleZones, changes)
   });
@@ -372,7 +395,7 @@ function addZonesLayer(): void {
   const name = "Unknown zone";
   const type = "Unknown";
   const color = `url(#hatch${zoneId % 42})`;
-  pack.zones.push({ i: zoneId, name, type, color, cells: [] });
+  pack.zones.push({ i: zoneId, name, type, color, cells: [], depth: getPlacementDepth() });
 
   zonesTable.refresh();
   Layers.draw("zones");

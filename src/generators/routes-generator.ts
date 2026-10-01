@@ -1,5 +1,5 @@
 import Alea from "alea";
-import { curveCatmullRom, line } from "d3";
+import { curveCatmullRom, curveLinear, line } from "d3";
 import Delaunator from "delaunator";
 import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { distanceSquared, findPath, getAdjective, isLand, ra, rn, round, rw } from "../utils";
@@ -203,7 +203,9 @@ class RoutesModule {
   private riverGeometryCache: Map<number, { points: Point[]; anchorIndices: number[] }> = new Map();
 
   regenerate(): void {
-    const lockedRoutes = pack.routes.filter(route => route.lock).map((route, index) => ({ ...route, i: index }));
+    const lockedRoutes = pack.routes
+      .filter(route => route.lock || route.depth !== undefined)
+      .map((route, index) => ({ ...route, i: index }));
     this.generate(lockedRoutes, Math.random());
   }
 
@@ -918,9 +920,9 @@ class RoutesModule {
     default: curveCatmullRom.alpha(0.1)
   };
 
-  getPath({ group, points }: { group: string; points: number[][] }): string {
+  getPath({ group, points, depth }: { group: string; points: number[][]; depth?: number }): string {
     const lineGen = line();
-    const curve = this.ROUTE_CURVES[group] || this.ROUTE_CURVES.default;
+    const curve = depth === undefined ? this.ROUTE_CURVES[group] || this.ROUTE_CURVES.default : curveLinear;
     lineGen.curve(curve);
     const path = round(lineGen(points.map(p => [p[0], p[1]]))!, 1);
     return path;

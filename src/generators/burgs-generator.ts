@@ -1,5 +1,6 @@
 import { quadtree } from "d3-quadtree";
 import { AUTO_BURG_LIMIT } from "@/components/options-schema";
+import { validateBurgCell } from "@/components/underwater-native";
 import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { Emblems } from "@/generators/emblems-generator";
 import type { BurgGroup } from "@/types/burg-groups";
@@ -201,7 +202,7 @@ class BurgModule {
     const { cells, burgs } = pack;
     const riversById = new Map(pack.rivers.map(river => [river.i, river]));
     for (const burg of burgs) {
-      if (burg.i && !burg.lock) delete burg.port;
+      if (burg.i && !burg.lock && burg.depth === undefined) delete burg.port;
     }
 
     const candidatesByWater = this.collectPortCandidates(burgs);
@@ -214,7 +215,7 @@ class BurgModule {
 
     // Shift non-port river burgs slightly toward the bank
     for (const burg of burgs) {
-      if (!burg.i || burg.lock || burg.port || !cells.r[burg.cell]) continue;
+      if (!burg.i || burg.lock || burg.depth !== undefined || burg.port || !cells.r[burg.cell]) continue;
       const [x, y] = this.shiftTowardsRiverBank(burg.cell, riversById);
       burg.x = x;
       burg.y = y;
@@ -233,7 +234,7 @@ class BurgModule {
     };
 
     for (const burg of burgs) {
-      if (!burg.i || burg.lock) continue;
+      if (!burg.i || burg.lock || burg.depth !== undefined) continue;
       const haven = cells.haven[burg.cell];
       const landFeature = cells.f[burg.cell];
 
@@ -556,7 +557,7 @@ class BurgModule {
 
   specify() {
     pack.burgs.forEach(burg => {
-      if (!burg.i || burg.removed || burg.lock) return;
+      if (!burg.i || burg.removed || burg.lock || burg.depth !== undefined) return;
       this.definePopulation(burg);
       this.defineEmblem(burg);
       this.defineFeatures(burg);
@@ -743,14 +744,16 @@ class BurgModule {
     return previewGeneratorsMap[group.preview](burg);
   }
 
-  add([x, y]: [number, number]) {
+  add([x, y]: [number, number], placement: { depth?: number; state?: number; culture?: number } = {}) {
     const { cells } = pack;
 
     const burgId = pack.burgs.length;
     const cellId = Pack.findCell(x, y);
-    const culture = cells.culture[cellId as number];
+    if (cellId === undefined) throw new Error("Choose a cell inside the map.");
+    validateBurgCell(pack, cellId, placement.depth);
+    const culture = placement.culture ?? cells.culture[cellId];
     const name = Names.getCulture(culture);
-    const state = cells.state[cellId as number];
+    const state = placement.state ?? cells.state[cellId];
     const feature = cells.f[cellId as number];
 
     const burg: Burg = {
@@ -765,6 +768,7 @@ class BurgModule {
       capital: 0,
       port: 0
     };
+    if (placement.depth !== undefined) burg.depth = placement.depth;
     this.definePopulation(burg);
     this.defineEmblem(burg);
     this.defineFeatures(burg);
@@ -778,7 +782,7 @@ class BurgModule {
     pack.burgs.push(burg);
     cells.burg[cellId as number] = burgId;
 
-    Routes.connect(cellId as number);
+    if (placement.depth === undefined) Routes.connect(cellId);
     return burgId;
   }
 
@@ -800,9 +804,11 @@ class BurgModule {
         province.burg = 0;
       });
 
-    const lockedBurgs = burgs.filter(burg => burg.i && !burg.removed && burg.lock);
+    const lockedBurgs = burgs.filter(burg => burg.i && !burg.removed && (burg.lock || burg.depth !== undefined));
     for (const lockedBurg of lockedBurgs) {
+      const oldId = lockedBurg.i;
       const newId = newBurgs.length;
+      for (const market of pack.markets) if (market.centerBurgId === oldId) market.centerBurgId = newId;
       lockedBurg.i = newId;
       newBurgs.push(lockedBurg);
       burgsTree.add([lockedBurg.x, lockedBurg.y]);
@@ -816,7 +822,7 @@ class BurgModule {
 
     const marketCenterIds = new Set(pack.markets.map(market => market.centerBurgId));
     const unlockedMarketCenters = burgs.filter(
-      burg => burg.i && !burg.removed && !burg.lock && marketCenterIds.has(burg.i)
+      burg => burg.i && !burg.removed && !burg.lock && burg.depth === undefined && marketCenterIds.has(burg.i)
     );
     for (const centerBurg of unlockedMarketCenters) {
       const oldId = centerBurg.i;

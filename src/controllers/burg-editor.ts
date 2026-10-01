@@ -3,8 +3,10 @@ import { closeDialogs, confirmationDialog, destroyDialog } from "@/components/di
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
 import { clearMainTip, tip } from "@/components/tooltips";
+import { validateBurgCell } from "@/components/underwater-native";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
+import { appendDepthFields } from "@/controllers/vertical-fields";
 import { removeEmblem } from "@/renderers/draw-emblems";
 import { EmblemRenderer } from "@/renderers/emblems/renderer";
 import { getHeight, openURL, speak } from "@/utils";
@@ -36,6 +38,35 @@ function open(id: number | string): void {
   renderDialog();
   updateGroupsList();
   updateBurgValues();
+  const burg = pack.burgs[+id];
+  appendDepthFields(
+    "burgProperties",
+    burg,
+    () => [burg.cell],
+    () => {
+      validateBurgCell(pack, burg.cell, burg.depth, burg.i);
+      updateBurgValues();
+    }
+  );
+  ensureEl("burgProperties").insertAdjacentHTML(
+    "beforeend",
+    '<div><label for="burgState" class="label">State:</label><select id="burgState" style="max-width:20em"></select></div>'
+  );
+  const stateSelect = ensureEl<HTMLSelectElement>("burgState");
+  for (const state of pack.states.filter(s => !s.removed))
+    stateSelect.add(new Option(state.fullName || state.name, String(state.i), false, state.i === burg.state));
+  stateSelect.addEventListener("change", () => {
+    if (burg.capital) {
+      tip("Reassign the state's capital before changing this burg's state.", false, "error");
+      stateSelect.value = String(burg.state);
+      return;
+    }
+    burg.state = Number(stateSelect.value);
+    pack.cells.state[burg.cell] = burg.state;
+    States.collectStatistics();
+    updateBurgValues();
+    Layers.draw("states", "labels");
+  });
 
   $("#burgEditor").dialog({
     title: "Edit Burg",
@@ -53,7 +84,7 @@ function renderDialog(): void {
           <svg data-tip="Burg emblem. Click to edit" class="pointer" viewBox="0 0 200 200" width="13em" height="13em">
             <use id="burgEmblem"></use>
           </svg>
-          <div style="display: grid; grid-auto-rows: minmax(1.6em, auto)">
+          <div id="burgProperties" style="display: grid; grid-auto-rows: minmax(1.6em, auto)">
             <div id="burgProvinceAndState" style="font-weight: bold; max-width: 16em"></div>
             <div>
               <div class="label">Name:</div>
@@ -117,7 +148,7 @@ function renderDialog(): void {
             </div>
             <div data-tip="Burg height above mean sea level">
               <div class="label">Elevation:</div>
-              <span id="burgElevation"></span> above sea level
+              <span id="burgElevation"></span>
             </div>
             <div>
               <div class="label">Features:</div>
@@ -298,6 +329,8 @@ function updateBurgValues(): void {
   const province = pack.cells.province[b.cell];
   const provinceName = province ? `${pack.provinces[province].fullName}, ` : "";
   const stateName = pack.states[b.state!].fullName || pack.states[b.state!].name;
+  const stateSelect = document.getElementById("burgState") as HTMLSelectElement | null;
+  if (stateSelect) stateSelect.value = String(b.state ?? 0);
   ensureEl("burgProvinceAndState").innerHTML = provinceName + stateName;
 
   ensureEl<HTMLInputElement>("burgName").value = b.name!;
@@ -320,7 +353,8 @@ function updateBurgValues(): void {
   ensureEl("burgTemperature").innerHTML = convertTemperature(temperature);
   ensureEl("burgTemperatureLikeIn").dataset.tip =
     `Average yearly temperature is like in ${getTemperatureLikeness(temperature)}`;
-  ensureEl("burgElevation").innerHTML = getHeight(pack.cells.h[b.cell]);
+  ensureEl("burgElevation").textContent =
+    b.depth === undefined ? `${getHeight(pack.cells.h[b.cell])} above sea level` : `${b.depth} m below sea level`;
 
   ensureEl("burgCapital").classList.toggle("inactive", !b.capital);
   ensureEl("burgPort").classList.toggle("inactive", !b.port);
@@ -761,16 +795,14 @@ function relocateBurgOnClick(this: SVGGElement, event: any): void {
   const id = getSelectedId();
   const burg = pack.burgs[id];
 
-  if (cells.h[cellId] < 20) {
-    tip("Cannot place burg into the water! Select a land cell", false, "error");
-    return;
-  }
-  if (cells.burg[cellId] && cells.burg[cellId] !== id) {
-    tip("There is already a burg in this cell. Please select a free cell", false, "error");
+  try {
+    validateBurgCell(pack, cellId, burg.depth, id);
+  } catch (error) {
+    tip((error as Error).message, false, "error");
     return;
   }
 
-  const newState = cells.state[cellId];
+  const newState = burg.depth === undefined ? cells.state[cellId] : burg.state!;
   const oldState = burg.state;
   if (newState !== oldState && burg.capital) {
     tip("Capital cannot be relocated into another state!", false, "error");

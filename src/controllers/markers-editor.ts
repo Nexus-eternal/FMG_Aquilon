@@ -2,8 +2,10 @@ import { type D3DragEvent, drag, select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, refreshEditors } from "@/components/dialog/dialog-helpers";
 import { stopMapPlacement } from "@/components/map-placement";
 import { Notes } from "@/components/notes";
-import { clearMainTip } from "@/components/tooltips";
+import { clearMainTip, tip } from "@/components/tooltips";
+import { validateUnderwaterPlacement } from "@/components/vertical-coordinates";
 import { Controllers } from "@/controllers";
+import { appendDepthFields } from "@/controllers/vertical-fields";
 import type { Marker } from "@/generators/markers-generator";
 import { drawMarkers, setEditedMarker } from "@/renderers/draw-markers";
 import { ensureEl, escapeHtml, findEl, isImageIcon, rn } from "../utils";
@@ -30,6 +32,7 @@ function open(markerI?: number, target?: Element): void {
 
   renderDialog();
   updateInputs();
+  appendDepthFields("markerBody", selectedMarker, () => [selectedMarker.cell]);
 
   $("#markerEditor").dialog({
     title: "Edit Marker",
@@ -151,9 +154,17 @@ function dragMarker(this: SVGElement, event: D3DragEvent<SVGElement, unknown, un
 
     const zoomSize = Number(this.getAttribute("width"));
 
-    selectedMarker.x = rn(x + dx + zoomSize / 2, 1);
-    selectedMarker.y = rn(y + dy + zoomSize, 1);
-    selectedMarker.cell = Pack.findCell(selectedMarker.x, selectedMarker.y)!;
+    const newX = rn(x + dx + zoomSize / 2, 1);
+    const newY = rn(y + dy + zoomSize, 1);
+    const cell = Pack.findCell(newX, newY)!;
+    try {
+      if (selectedMarker.depth !== undefined) validateUnderwaterPlacement(selectedMarker.depth, [cell], pack.cells.h);
+      selectedMarker.x = newX;
+      selectedMarker.y = newY;
+      selectedMarker.cell = cell;
+    } catch (error) {
+      tip((error as Error).message, false, "error");
+    }
     drawMarkers();
   });
 }

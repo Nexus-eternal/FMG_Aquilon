@@ -2,6 +2,9 @@ import { pointer } from "d3";
 import { refreshEditors } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { stopMapPlacement, toggleMapPlacement } from "@/components/map-placement";
+import { tip } from "@/components/tooltips";
+import { getPlacementDepth } from "@/components/underwater-native";
+import { validateUnderwaterPlacement } from "@/components/vertical-coordinates";
 import type { Marker } from "@/generators/markers-generator";
 import { ensureEl, findEl, rn } from "@/utils";
 
@@ -28,11 +31,18 @@ function addOnClick(event: MouseEvent, baseMarker?: Marker): void {
   const point = pointer(event, event.currentTarget as SVGGElement);
   const cell = Pack.findCell(point[0], point[1]);
   if (cell === undefined) return;
+  const depth = baseMarker?.depth ?? getPlacementDepth();
+  try {
+    if (depth !== undefined) validateUnderwaterPlacement(depth, [cell], pack.cells.h);
+  } catch (error) {
+    tip((error as Error).message, false, "error");
+    return;
+  }
 
   const selectedType = ensureEl<HTMLSelectElement>("addedMarkerType").value;
   const selectedConfig = Markers.getConfig().find(({ type }) => type === selectedType);
   const template = baseMarker || selectedConfig || { icon: "❓", type: "custom" };
-  const marker = Markers.add({ ...template, x: rn(point[0], 2), y: rn(point[1], 2), cell } as Marker);
+  const marker = Markers.add({ ...template, depth, x: rn(point[0], 2), y: rn(point[1], 2), cell } as Marker);
   selectedConfig?.add(marker, cell);
 
   Layers.draw("markers");

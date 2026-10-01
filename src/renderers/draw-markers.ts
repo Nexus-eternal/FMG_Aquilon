@@ -1,4 +1,5 @@
 import { Layers } from "@/components/layers";
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Marker } from "@/generators/markers-generator";
 import { ViewportLayers, type ViewportRenderContext } from "@/renderers/viewport/viewport-renderer";
 import { isImageIcon } from "@/utils/fileUtils";
@@ -67,7 +68,7 @@ function reconcileMarkers({ root, bounds }: ViewportRenderContext): void {
 
   for (const marker of pack.markers) {
     const edited = root === document && marker === editedMarker;
-    if (marker.hidden) continue;
+    if (marker.hidden || !isUnderwaterVisible(marker)) continue;
     if (!edited && ((anyPinned && !marker.pinned) || (visibleMarkerIds && !visibleMarkerIds.has(marker.i)))) continue;
     const { x, y, size } = getMarkerGeometry(marker, rescale, bounds.scale);
     if (!edited && (x > bounds.x1 || y > bounds.y1 || x + size < bounds.x0 || y + size < bounds.y0)) continue;

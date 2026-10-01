@@ -15,6 +15,7 @@ import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
 import type { FillBoxElement } from "@/components/shared/fill-box";
 import { clearMainTip, tip } from "@/components/tooltips";
+import { getPlacementDepth, validateBurgCell } from "@/components/underwater-native";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
 import { Emblems } from "@/generators/emblems-generator";
@@ -540,6 +541,8 @@ function editStateName(state: number): void {
   ensureEl<HTMLInputElement>("stateNameEditorShort").value = s.name || "";
   applyOption(stateNameEditorSelectForm, s.formName || "");
   ensureEl<HTMLInputElement>("stateNameEditorFull").value = s.fullName || "";
+  ensureEl<HTMLSelectElement>("stateEnvironment").value = s.environment || "surface";
+  ensureEl<HTMLInputElement>("stateEnvironmentSubtype").value = s.environmentSubtype || "";
 
   $("#stateNameEditor").dialog({
     resizable: false,
@@ -625,6 +628,8 @@ function editStateName(state: number): void {
     s.name = nameInput.value;
     s.formName = formSelect.value;
     s.fullName = fullNameInput.value;
+    s.environment = ensureEl<HTMLSelectElement>("stateEnvironment").value;
+    s.environmentSubtype = ensureEl<HTMLInputElement>("stateEnvironmentSubtype").value.trim();
     if (changed && ensureEl<HTMLInputElement>("stateNameEditorUpdateLabel").checked) {
       if (s.label?.text) delete s.label.text;
       Layers.draw("labels");
@@ -636,6 +641,8 @@ function editStateName(state: number): void {
 function renderNameEditor(): void {
   destroyDialog("stateNameEditor");
   const nameEditorHtml = /* html */ `<div id="stateNameEditor" class="dialog" data-state="0">
+      <div><label for="stateEnvironment" class="label">Environment:</label><select id="stateEnvironment"><option value="surface">Surface / mixed</option><option value="underwater">Underwater</option></select></div>
+      <div><label for="stateEnvironmentSubtype" class="label">Subtype:</label><input id="stateEnvironmentSubtype" placeholder="e.g. Reef, Abyssal" /></div>
       <div>
         <div data-tip="State short name" class="label">Short name:</div>
         <input
@@ -1255,7 +1262,11 @@ function openPaintEditor(): void {
       .map(state => ({ id: state.i, name: state.name, color: state.color || "#ffffff" })),
     dontOverrideControl: true,
     getValue: cell => pack.cells.state[cell],
-    filterCell: (cell, currentState) => isLand(cell, pack) && cell !== pack.states[currentState].center,
+    filterCell: (cell, currentState, nextState) =>
+      cell !== pack.states[currentState].center &&
+      (isLand(cell, pack)
+        ? pack.states[nextState].environment !== "underwater"
+        : getPlacementDepth() !== undefined || pack.states[nextState].environment === "underwater"),
     onApply: changes => applyStatesPaint(changes, adjustLabels)
   });
 }
@@ -1464,8 +1475,11 @@ function addState(this: SVGElement, event: MouseEvent): void {
   const { cells, states, burgs } = pack as any;
   const point = getPointer(event, this);
   const center = Pack.findCell(point[0], point[1])!;
-  if (cells.h[center] < 20) {
-    tip("You cannot place state into the water. Please click on a land cell", false, "error");
+  const depth = getPlacementDepth();
+  try {
+    validateBurgCell(pack, center, depth, cells.burg[center] || undefined);
+  } catch (error) {
+    tip((error as Error).message, false, "error");
     return;
   }
 
@@ -1476,7 +1490,7 @@ function addState(this: SVGElement, event: MouseEvent): void {
   }
 
   if (!burgId) {
-    burgId = Burgs.add(point as [number, number]);
+    burgId = Burgs.add(point as [number, number], { depth });
     redrawEmblem("burg", burgId);
   }
 
@@ -1532,6 +1546,10 @@ function addState(this: SVGElement, event: MouseEvent): void {
   cells.province[center] = 0;
 
   states.push({
+    environment: depth === undefined ? "surface" : "underwater",
+    treasury: 0,
+    salesTax: 0,
+    pollTax: 0,
     i: newState,
     name,
     diplomacy,
@@ -1551,6 +1569,8 @@ function addState(this: SVGElement, event: MouseEvent): void {
   States.findNeighbors();
   States.collectStatistics();
   States.defineStateForms([newState]);
+  // Initialize the native government and tax model before protecting a manually created deep-sea state.
+  states[newState].lock = depth !== undefined;
   adjustProvinces([cells.province[center]]);
 
   Layers.draw("labels");

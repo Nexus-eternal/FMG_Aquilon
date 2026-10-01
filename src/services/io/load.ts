@@ -12,6 +12,7 @@ import { undraw } from "@/components/undraw";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { resetZoom } from "@/components/zoom";
 import { GraphOverride } from "@/generators/graph-override";
+import { migrateUnderwaterAnnotations } from "@/generators/underwater-migration";
 import { onLegendClick } from "@/renderers/draw-legend";
 import { zonesFilter } from "@/renderers/draw-zones";
 import { Services } from "@/services";
@@ -670,6 +671,20 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
       }
     }
 
+    document.getElementById("underwaterObjects")?.remove();
+    document.getElementById("underwaterDraft")?.remove();
+    try {
+      migrateUnderwaterAnnotations();
+    } catch (error) {
+      tip(
+        `Underwater migration postponed; original objects preserved: ${(error as Error).message}`,
+        true,
+        "error",
+        15000
+      );
+      ensureEl("underwaterMigrationStatus").textContent =
+        `Original Underwater data preserved: ${(error as Error).message}`;
+    }
     Layers.drawAll();
     applyStoredStyles();
     applyPerformanceSettings(); // the file's SVG carries the attributes of the browser that saved it
@@ -678,6 +693,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
     resetZoom(0); // an opened map is shown fitted, whatever window size it was made on
     focusOn();
     invokeActiveZooming();
+    window.dispatchEvent(new Event("map:loaded"));
 
     WARN && console.warn(`TOTAL: ${rn((performance.now() - uploadTimeStart) / 1000, 2)}s`);
 
