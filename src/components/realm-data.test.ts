@@ -144,4 +144,23 @@ describe("RealmDataRegistry", () => {
     expect(() => registry.get("deep")).toThrow("not registered");
     expect(() => registry.activate("deep", createGraph())).toThrow("not registered");
   });
+
+  it("round-trips island and entity altitude and the filter without affecting Surface", () => {
+    const graph = createGraph();
+    graph.features = [{ i: 1, land: true, altitude: 3200 }] as PackedGraph["features"];
+    graph.markers[0].altitude = 1800;
+    registry.save("surface", createGraph());
+    registry.save("sky", graph);
+    registry.setVerticalFilter("sky", { enabled: true, min: 1000, max: 2000 });
+    registry.save("sky", graph);
+    const restored = new RealmDataRegistry();
+    restored.restore(JSON.parse(JSON.stringify(registry.state)));
+    graph.features[0].altitude = 0;
+    graph.markers[0].altitude = 0;
+    restored.activate("sky", graph);
+    expect(graph.features[0].altitude).toBe(3200);
+    expect(graph.markers[0].altitude).toBe(1800);
+    expect(restored.getVerticalFilter("sky")).toEqual({ enabled: true, min: 1000, max: 2000 });
+    expect(restored.getVerticalFilter("surface").enabled).toBe(false);
+  });
 });

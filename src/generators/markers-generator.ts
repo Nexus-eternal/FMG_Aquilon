@@ -1,4 +1,5 @@
 import { mean } from "d3";
+import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import type { PackedGraph } from "@/types/PackedGraph";
 import {
   capitalize,
@@ -24,7 +25,7 @@ export function getDefaultMarkerName(type: string | undefined): string {
   return type ? capitalize(type.replaceAll("-", " ")) : "Marker";
 }
 
-export interface Marker {
+export interface Marker extends VerticalCoordinates {
   i: number;
   type: string;
   icon: string;

@@ -256,6 +256,8 @@ function handleControlPointClick(this: any): void {
       group: route.group,
       feature: route.feature,
       name: route.name,
+      altitude: route.altitude,
+      depth: route.depth,
       points: newRoutePoints
     } as Route;
     pack.routes.push(newRoute);
@@ -296,6 +298,7 @@ function openJoinRoutesDialog(): void {
   const candidateRoutes = pack.routes.filter((r: Route) => {
     if (r.i === route.i) return false;
     if (r.group !== route.group) return false;
+    if (r.altitude !== route.altitude || r.depth !== route.depth) return false;
     if (r.points.at(0)![2] === lastCell) return true;
     if (r.points.at(-1)![2] === firstCell) return true;
     if (r.points.at(0)![2] === firstCell) return true;

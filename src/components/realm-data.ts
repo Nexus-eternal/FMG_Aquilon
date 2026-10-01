@@ -1,6 +1,7 @@
 import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
 import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
+import { normalizeVerticalFilter, type VerticalCoordinates, type VerticalFilter } from "./vertical-coordinates";
 
 export const REALM_DATA_VERSION = 2;
 
@@ -15,6 +16,8 @@ export interface RealmScopedData {
     routes: PackedGraph["cells"]["routes"];
   };
   terrain?: RealmTerrainData;
+  featureCoordinates?: Record<number, VerticalCoordinates>;
+  verticalFilter?: VerticalFilter;
 }
 
 export interface RealmDataState {
@@ -38,7 +41,13 @@ function capture(graph: PackedGraph, terrainGraph?: GridGraph, previous?: RealmS
       burg: Array.from(graph.cells.burg),
       routes: clone(graph.cells.routes)
     },
-    terrain: terrainGraph ? captureRealmTerrain(terrainGraph) : previous?.terrain
+    terrain: terrainGraph ? captureRealmTerrain(terrainGraph) : previous?.terrain,
+    featureCoordinates: Object.fromEntries(
+      (graph.features ?? [])
+        .filter(feature => feature?.i)
+        .map(feature => [feature.i, { altitude: feature.altitude, depth: feature.depth }])
+    ),
+    verticalFilter: previous?.verticalFilter
   };
 }
 
@@ -89,6 +98,16 @@ export class RealmDataRegistry {
     return Boolean(this.realms.get(id)?.terrain);
   }
 
+  getVerticalFilter(id: string): VerticalFilter {
+    return normalizeVerticalFilter(this.realms.get(id)?.verticalFilter);
+  }
+
+  setVerticalFilter(id: string, filter: VerticalFilter): void {
+    const data = this.realms.get(id);
+    if (!data) throw new Error(`Realm data ${id} is not registered`);
+    data.verticalFilter = normalizeVerticalFilter(filter);
+  }
+
   applyTerrain(id: string, graph: GridGraph): void {
     const terrain = this.realms.get(id)?.terrain;
     if (!terrain) throw new Error(`Realm terrain ${id} is not registered`);
@@ -104,6 +123,10 @@ export class RealmDataRegistry {
     graph.routes = clone(data.routes);
     graph.zones = clone(data.zones);
     graph.addedLabels = clone(data.addedLabels);
+    for (const feature of graph.features ?? []) {
+      const coordinates = data.featureCoordinates?.[feature?.i];
+      if (coordinates) Object.assign(feature, coordinates);
+    }
     graph.cells.burg = Uint16Array.from(data.cells.burg);
     graph.cells.routes = clone(data.cells.routes);
     this.activeRealmId = id;

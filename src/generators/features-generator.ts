@@ -1,5 +1,6 @@
 import Alea from "alea";
 import { polygonArea } from "d3";
+import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { clipPoly, connectVertices, distanceSquared, isLand, isWater, P, ra, rn, TYPED_ARRAY_MAX } from "../utils";
 import type { CoastlineSettings } from "./coastline-generator";
 
@@ -10,7 +11,7 @@ declare global {
 export type FeatureType = "ocean" | "lake" | "island";
 
 /* Pack features interface */
-export interface CapturedFeature {
+export interface CapturedFeature extends VerticalCoordinates {
   name: string;
   note?: string;
   type: FeatureType;
@@ -18,7 +19,7 @@ export interface CapturedFeature {
   coastline?: CoastlineSettings;
 }
 
-export interface Feature {
+export interface Feature extends VerticalCoordinates {
   i: number;
   type: FeatureType;
   land: boolean;
@@ -335,11 +336,19 @@ class FeatureModule {
 
     const captured: CapturedFeature[] = [];
     for (const feature of pack.features) {
-      if (!feature?.i || (!feature.name && !feature.note && !feature.coastline)) continue;
+      if (
+        !feature?.i ||
+        (!feature.name &&
+          !feature.note &&
+          !feature.coastline &&
+          feature.altitude === undefined &&
+          feature.depth === undefined)
+      )
+        continue;
       const gridCells = gridCellsByFeature.get(feature.i);
       if (!gridCells?.size) continue;
-      const { name, note, type, coastline } = feature;
-      captured.push({ name, note, type, gridCells, coastline });
+      const { name, note, type, coastline, altitude, depth } = feature;
+      captured.push({ name, note, type, gridCells, coastline, altitude, depth });
     }
 
     return captured;
@@ -383,7 +392,9 @@ class FeatureModule {
 
       takenFeatures.add(featureId);
       takenCaptures.add(index);
-      const { name, note, coastline } = captured[index];
+      const { name, note, coastline, altitude, depth } = captured[index];
+      feature.altitude = altitude;
+      feature.depth = depth;
       if (name) feature.name = name;
       if (note) feature.note = note;
       if (coastline) feature.coastline = coastline;

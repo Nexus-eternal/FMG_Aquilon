@@ -1,5 +1,6 @@
 import { quadtree } from "d3-quadtree";
 import { AUTO_BURG_LIMIT } from "@/components/options-schema";
+import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { Emblems } from "@/generators/emblems-generator";
 import type { BurgGroup } from "@/types/burg-groups";
 import type { Emblem } from "@/types/emblems";
@@ -15,7 +16,7 @@ import type { Point } from "./voronoi";
 
 export const isAutoBurgLimit = (): boolean => options.generation.burgs.limit === AUTO_BURG_LIMIT;
 
-export interface Burg {
+export interface Burg extends VerticalCoordinates {
   cell: number;
   x: number;
   y: number;

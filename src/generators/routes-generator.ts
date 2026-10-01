@@ -1,6 +1,7 @@
 import Alea from "alea";
 import { curveCatmullRom, line } from "d3";
 import Delaunator from "delaunator";
+import type { VerticalCoordinates } from "@/components/vertical-coordinates";
 import { distanceSquared, findPath, getAdjective, isLand, ra, rn, round, rw } from "../utils";
 import { meander } from "../utils/pathUtils";
 import type { Burg } from "./burgs-generator";
@@ -171,7 +172,7 @@ const suffixes: Record<string, Record<string, number>> = {
   searoutes: { route: 5, lane: 2, passage: 1, "water way": 1 }
 };
 
-export interface Route {
+export interface Route extends VerticalCoordinates {
   i: number;
   name?: string;
   group: string;
