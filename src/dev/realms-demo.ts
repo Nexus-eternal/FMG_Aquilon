@@ -10,6 +10,7 @@ import { Styles } from "@/generators/styles";
 import type { StyleLayerId, Styles as StylesData } from "@/generators/styles-schema";
 import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
+import { createRealmCloudSvg } from "./realm-clouds";
 
 const REALM_ID = "sky";
 const SURFACE_BACKDROP_ID = "demoSurfaceBackdrop";
@@ -311,24 +312,7 @@ function drawClouds(layer: Layer): void {
 
   const { width, height } = options.map.graph;
   const seed = cloudSeed(options.map.seed);
-  const cloudOffset = -0.78 + cloudDensity * 0.38;
-  const cloudOpacity = 0.45 + cloudDensity * 0.5;
-  const svg = /* html */ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
-    <defs>
-      <filter id="cloud-noise" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.012" numOctaves="4" seed="${seed}" result="noise" />
-        <feColorMatrix in="noise" type="luminanceToAlpha" result="alpha" />
-        <feComponentTransfer in="alpha" result="soft-clouds">
-          <feFuncA type="gamma" amplitude="1.7" exponent="1.2" offset="${cloudOffset.toFixed(3)}" />
-        </feComponentTransfer>
-        <feGaussianBlur in="soft-clouds" stdDeviation="6" result="blurred-clouds" />
-        <feFlood flood-color="#f7fbff" flood-opacity="${cloudOpacity.toFixed(3)}" result="cloud-colour" />
-        <feComposite in="cloud-colour" in2="blurred-clouds" operator="in" />
-      </filter>
-    </defs>
-    ${editorClouds ? `<rect width="${width}" height="${height}" fill="#b9d3eb" fill-opacity="${(1 - groundVisibility).toFixed(3)}" />` : ""}
-    <rect width="${width}" height="${height}" fill="transparent" filter="url(#cloud-noise)" />
-  </svg>`;
+  const svg = createRealmCloudSvg({ width, height, seed, density: cloudDensity, groundVisibility, editorClouds });
   const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
   image.setAttribute("href", `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
   image.setAttribute("width", String(width));
@@ -386,7 +370,7 @@ function showDemoControls(): void {
     <span id="realmDemoStatus">Waiting for the Surface map…</span>
     <label class="realm-demo-slider">
       <span>Cloud density</span>
-      <input id="realmDemoCloudDensity" type="range" min="0.2" max="1" step="0.05" value="${cloudDensity}" />
+      <input id="realmDemoCloudDensity" type="range" min="0" max="1" step="0.05" value="${cloudDensity}" />
       <output>${Math.round(cloudDensity * 100)}%</output>
     </label>
     <label class="realm-demo-slider">

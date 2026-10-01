@@ -95,6 +95,7 @@ function renderTemplateEditor(): void {
           <option value="taklamakan">Taklamakan</option>
           <option value="oldWorld">Old World</option>
           <option value="fractious">Fractious</option>
+          <option value="worldMap">World Map</option>
         </select>
       </div>
       <div id="templateTools">
