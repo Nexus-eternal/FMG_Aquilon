@@ -2,14 +2,16 @@ import { drag, type Selection, select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
+import { RealmData } from "@/components/realm-data";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { validateWaterRoute } from "@/components/underwater-native";
 import { Controllers } from "@/controllers";
-import { appendDepthFields } from "@/controllers/vertical-fields";
 import { type Route, UNNAMED_ROUTE } from "@/generators/routes-generator";
 import { redrawRoute as redrawRouteShape, setEditedRoute } from "@/renderers/draw-routes";
+import { getRouteEnvironment } from "@/types/route-environment";
 import { speak } from "@/utils";
 import { ensureEl, findEl, getPointer, getSegmentId, rn } from "../utils";
+import { appendRouteEnvironmentFields } from "./route-environment-fields";
 
 let selectedRoute: Selection<SVGElement, unknown, HTMLElement, unknown>;
 
@@ -39,14 +41,19 @@ function open(id: string): void {
   {
     const route = getRoute();
     updateRouteData(route);
-    appendDepthFields(
+    if (getRouteEnvironment(route) === "air")
+      route.points = RealmData.routePoints(route, pack).map(([x, y]) => [x, y, Pack.findCell(x, y) ?? 0]);
+    appendRouteEnvironmentFields(
       "routeBody",
       route,
-      () => route.points.map(p => p[2]),
+      () => route.points,
       () => {
-        if (route.depth !== undefined) validateWaterRoute(route.points, route.depth);
-        redrawRoute(route);
-      }
+        Layers.draw("routes", "labels");
+        selectedRoute = select<SVGElement, unknown>(`#route${route.i}`).on("click", addControlPoint);
+        updateRouteData(route);
+        drawControlPoints(route.points);
+      },
+      route
     );
     drawControlPoints(route.points);
     drawCells(route.points);
@@ -178,9 +185,9 @@ function dragControlPoint(event: any): void {
     const cellId = Pack.findCell(x, y);
 
     try {
-      if (route.depth !== undefined) {
+      if (getRouteEnvironment(route) === "underwater") {
         const proposed = route.points.map((point, index) => (index === pointIndex ? [x, y, cellId!] : point));
-        validateWaterRoute(proposed, route.depth);
+        validateWaterRoute(proposed, route.depth!);
       }
     } catch (error) {
       tip((error as Error).message, false, "error");
@@ -188,11 +195,17 @@ function dragControlPoint(event: any): void {
     }
 
     this.__data__ = route.points[pointIndex] = [x, y, cellId!];
+    if (route.endpoints && (pointIndex === 0 || pointIndex === route.points.length - 1))
+      route.endpoints[pointIndex === 0 ? 0 : 1] = null;
     redrawRoute(route);
     drawCells(route.points);
   });
 
   event.on("end", () => {
+    if (getRouteEnvironment(route) === "air") {
+      pack.cells.routes = Routes.buildLinks(pack.routes);
+      return;
+    }
     const movedToCell = route.points[pointIndex][2];
     drawControlPoints(route.points);
 
@@ -213,6 +226,7 @@ function dragControlPoint(event: any): void {
 }
 
 function redrawRoute(route: Route): void {
+  pack.cells.routes = Routes.buildLinks(pack.routes);
   redrawRouteShape(route);
   updateRouteLength(route);
   if (findEl("elevationProfile")) showRouteElevationProfile();
@@ -229,10 +243,10 @@ function addControlPoint(this: any, event: any): void {
 
   const index = getSegmentId(route.points as [number, number][], point as [number, number], 2);
   try {
-    if (route.depth !== undefined) {
+    if (getRouteEnvironment(route) === "underwater") {
       const proposed = [...route.points];
       proposed.splice(index, 0, point);
-      validateWaterRoute(proposed, route.depth);
+      validateWaterRoute(proposed, route.depth!);
     }
   } catch (error) {
     tip((error as Error).message, false, "error");
@@ -273,9 +287,11 @@ function handleControlPointClick(this: any): void {
   else removeControlPoint(controlPoint);
 
   function splitRoute(): void {
+    const originalEndpoints = route.endpoints;
     const oldRoutePoints = route.points.slice(0, index + 1);
     const newRoutePoints = route.points.slice(index);
 
+    if (originalEndpoints) route.endpoints = [originalEndpoints[0], null];
     // update old route
     route.points = oldRoutePoints;
     drawControlPoints(route.points);
@@ -290,9 +306,12 @@ function handleControlPointClick(this: any): void {
       name: route.name,
       altitude: route.altitude,
       depth: route.depth,
+      environment: route.environment,
+      endpoints: originalEndpoints ? [null, originalEndpoints[1]] : undefined,
       points: newRoutePoints
     } as Route;
     pack.routes.push(newRoute);
+    if (getRouteEnvironment(newRoute) === "air") newRoute.i = RealmData.nextAirRouteId(pack);
 
     for (let i = 0; i < newRoute.points.length; i++) {
       const cellId = newRoute.points[i][2];
@@ -301,15 +320,18 @@ function handleControlPointClick(this: any): void {
     }
 
     redrawRouteShape(newRoute);
+    pack.cells.routes = Routes.buildLinks(pack.routes);
     ensureEl("routeSplit").classList.remove("pressed");
   }
 
   function removeControlPoint(controlPoint: any): void {
+    if (route.endpoints && (index === 0 || index === route.points.length - 1))
+      route.endpoints[index === 0 ? 0 : 1] = null;
     try {
-      if (route.depth !== undefined)
+      if (getRouteEnvironment(route) === "underwater")
         validateWaterRoute(
           route.points.filter(p => p !== point),
-          route.depth
+          route.depth!
         );
     } catch (error) {
       tip((error as Error).message, false, "error");
@@ -340,7 +362,9 @@ function openJoinRoutesDialog(): void {
   const candidateRoutes = pack.routes.filter((r: Route) => {
     if (r.i === route.i) return false;
     if (r.group !== route.group) return false;
+    if (getRouteEnvironment(r) !== getRouteEnvironment(route)) return false;
     if (r.altitude !== route.altitude || r.depth !== route.depth) return false;
+    if (getRouteEnvironment(route) === "air") return mergeAirRoutePoints(route, r) !== null;
     if (r.points.at(0)![2] === lastCell) return true;
     if (r.points.at(-1)![2] === firstCell) return true;
     if (r.points.at(0)![2] === firstCell) return true;
@@ -382,9 +406,24 @@ function openJoinRoutesDialog(): void {
 }
 
 function joinRoutes(route: Route, joinedRoute: Route): void {
-  const mergedPoints = mergeRoutePoints(route.points, joinedRoute.points);
+  const ends = [route, joinedRoute].flatMap(
+    r =>
+      [
+        [r.points[0], r.endpoints?.[0]],
+        [r.points.at(-1), r.endpoints?.[1]]
+      ] as const
+  );
+  const mergedPoints =
+    getRouteEnvironment(route) === "air"
+      ? mergeAirRoutePoints(route, joinedRoute)
+      : mergeRoutePoints(route.points, joinedRoute.points);
   if (!mergedPoints) return;
   route.points = mergedPoints;
+  if (route.endpoints || joinedRoute.endpoints) {
+    route.endpoints = [mergedPoints[0], mergedPoints.at(-1)!].map(
+      point => ends.find(([p]) => p && p[0] === point[0] && p[1] === point[1])?.[1] ?? null
+    ) as Route["endpoints"];
+  }
 
   for (let i = 0; i < route.points.length; i++) {
     const point = route.points[i];
@@ -393,10 +432,35 @@ function joinRoutes(route: Route, joinedRoute: Route): void {
   }
 
   Routes.remove(joinedRoute);
+  pack.cells.routes = Routes.buildLinks(pack.routes);
   Layers.draw("routes");
   drawControlPoints(route.points);
   redrawRoute(route);
   drawCells(route.points);
+}
+
+export function mergeAirRoutePoints(route: Route, joined: Route): number[][] | null {
+  const points = RealmData.routePoints(route, pack);
+  const other = RealmData.routePoints(joined, pack);
+  const pairs = [
+    [1, 0],
+    [0, 1],
+    [0, 0],
+    [1, 1]
+  ] as const;
+  for (const [a, b] of pairs) {
+    const first = a === 0 ? points[0] : points.at(-1);
+    const second = b === 0 ? other[0] : other.at(-1);
+    if (!first || !second || first[0] !== second[0] || first[1] !== second[1]) continue;
+    const from = route.endpoints?.[a];
+    const to = joined.endpoints?.[b];
+    if (from && to && (from.realm !== to.realm || from.burg !== to.burg)) continue;
+    if (a === 1 && b === 0) return [...points, ...other.slice(1)];
+    if (a === 0 && b === 1) return [...other, ...points.slice(1)];
+    if (a === 0 && b === 0) return [...points.reverse(), ...other.slice(1)];
+    return [...points, ...other.reverse().slice(1)];
+  }
+  return null;
 }
 
 export function mergeRoutePoints(routePoints: number[][], joinedPoints: number[][]): number[][] | null {

@@ -2,6 +2,7 @@ import { type Selection, select } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
+import { RealmData } from "@/components/realm-data";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { validateBurgCell } from "@/components/underwater-native";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
@@ -823,7 +824,13 @@ function relocateBurgOnClick(this: SVGGElement, event: any): void {
 
   // the label snaps back to the relocated burg, so its custom path is no longer valid
   if (burg.label) Object.assign(burg.label, { dx: 0, dy: 0, pathPoints: undefined });
-  Layers.draw("burgIcons", "labels");
+  for (const route of pack.routes) {
+    if (route.endpoints?.some(endpoint => endpoint?.realm === RealmData.active && endpoint.burg === burg.i)) {
+      route.points = RealmData.routePoints(route, pack);
+      delete route.length;
+    }
+  }
+  Layers.draw("burgIcons", "labels", "routes");
 
   if (event.shiftKey === false) toggleRelocateBurg();
 }

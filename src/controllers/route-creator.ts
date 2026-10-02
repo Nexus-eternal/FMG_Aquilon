@@ -2,17 +2,23 @@ import { select } from "d3";
 import { closeDialogs, destroyDialog } from "@/components/dialog/dialog-helpers";
 import { Layers } from "@/components/layers";
 import { stopMapPlacement } from "@/components/map-placement";
+import { RealmData } from "@/components/realm-data";
 import { clearMainTip, tip } from "@/components/tooltips";
 import { getPlacementDepth, validateWaterRoute } from "@/components/underwater-native";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
-import { appendDepthFields } from "@/controllers/vertical-fields";
 import type { Route } from "@/generators/routes-generator";
 import { setTempRoute } from "@/renderers/draw-routes";
+import { getRouteEnvironment } from "@/types/route-environment";
 import { ensureEl, getPointer, rn } from "../utils";
+import {
+  appendRouteEnvironmentFields,
+  type EditableRouteEnvironment,
+  ensureEnvironmentRouteGroup
+} from "./route-environment-fields";
 
 let creatorPoints: number[][] = [];
-let placement: { depth?: number } = {};
+let placement: EditableRouteEnvironment = {};
 
 let isCellsLayerForced = false; // the cells layer is turned on for the editing mode
 
@@ -32,8 +38,26 @@ function open(defaultGroup?: string): void {
 
   creatorPoints = [];
   placement = { depth: getPlacementDepth() };
+  let previousEnvironment = getRouteEnvironment(placement);
   renderDialog();
-  appendDepthFields("routeCreatorBottom", placement, () => creatorPoints.map(p => p[2]));
+  appendRouteEnvironmentFields(
+    "routeCreatorBottom",
+    placement,
+    () => creatorPoints,
+    () => {
+      const environment = getRouteEnvironment(placement);
+      if (environment === previousEnvironment) {
+        drawRoute(creatorPoints);
+        return;
+      }
+      previousEnvironment = environment;
+      const group = ensureEnvironmentRouteGroup(environment);
+      const select = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect");
+      if (![...select.options].some(option => option.value === group)) select.add(new Option(group, group));
+      select.value = group;
+      drawRoute(creatorPoints);
+    }
+  );
 
   // update route groups
   ensureEl("routeCreatorGroupSelect").innerHTML = select("#routes")
@@ -89,7 +113,8 @@ function onClick(this: any, event: any): void {
   const cellId = Pack.findCell(x, y);
   const point = [rn(x, 2), rn(y, 2), cellId!];
   try {
-    if (placement.depth !== undefined) validateWaterRoute([...creatorPoints, point], placement.depth);
+    if (getRouteEnvironment(placement) === "underwater")
+      validateWaterRoute([...creatorPoints, point], placement.depth!);
   } catch (error) {
     tip((error as Error).message, false, "error");
     return;
@@ -134,30 +159,37 @@ function drawRoute(points: number[][]): void {
     .attr("r", 0.6);
 
   const group = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect").value;
-  setTempRoute({ group, points, depth: placement.depth });
+  setTempRoute({ group, points, ...placement });
 }
 
 function completeCreation(): void {
+  if (getRouteEnvironment(placement) === "air") {
+    const burgs = placement.endpoints?.map(endpoint => endpoint && RealmData.resolveEndpoint(endpoint, pack));
+    if (creatorPoints.length < 2 && burgs?.[0] && burgs[1])
+      creatorPoints = burgs.map(burg => [burg!.x, burg!.y, Pack.findCell(burg!.x, burg!.y) ?? 0]);
+    creatorPoints = RealmData.routePoints({ ...placement, points: creatorPoints } as Route, pack);
+  }
   const points = creatorPoints;
   if (points.length < 2) {
     tip("Add at least 2 points", false, "error");
     return;
   }
 
-  const routeId = Routes.getNextId();
+  const routeId = getRouteEnvironment(placement) === "air" ? RealmData.nextAirRouteId(pack) : Routes.getNextId();
   const group = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect").value;
   const feature = pack.cells.f[points[0][2]];
   try {
-    if (placement.depth !== undefined) validateWaterRoute(points, placement.depth);
+    if (getRouteEnvironment(placement) === "underwater") validateWaterRoute(points, placement.depth!);
   } catch (error) {
     tip((error as Error).message, false, "error");
     return;
   }
-  const route = { points, group, feature, i: routeId, depth: placement.depth } as Route;
+  const route = { points, group, feature, i: routeId, ...placement } as Route;
   pack.routes.push(route);
+  pack.cells.routes = Routes.buildLinks(pack.routes);
 
   const links = pack.cells.routes;
-  for (let i = 0; i < points.length; i++) {
+  for (let i = 0; getRouteEnvironment(route) !== "air" && i < points.length; i++) {
     const point = points[i];
     const nextPoint = points[i + 1];
 

@@ -2,6 +2,8 @@ import Alea from "alea";
 import { curveCatmullRom, curveLinear, line } from "d3";
 import Delaunator from "delaunator";
 import type { VerticalCoordinates } from "@/components/vertical-coordinates";
+import { getRouteEnvironment, type RouteEndpoint, type RouteEnvironment } from "@/types/route-environment";
+import { getAirRoutePath } from "@/utils/airRouteUtils";
 import { distanceSquared, findPath, getAdjective, isLand, ra, rn, round, rw } from "../utils";
 import { meander } from "../utils/pathUtils";
 import type { Burg } from "./burgs-generator";
@@ -173,6 +175,8 @@ const suffixes: Record<string, Record<string, number>> = {
 };
 
 export interface Route extends VerticalCoordinates {
+  environment?: RouteEnvironment;
+  endpoints?: [RouteEndpoint | null, RouteEndpoint | null];
   i: number;
   name?: string;
   group: string;
@@ -204,8 +208,8 @@ class RoutesModule {
 
   regenerate(): void {
     const lockedRoutes = pack.routes
-      .filter(route => route.lock || route.depth !== undefined)
-      .map((route, index) => ({ ...route, i: index }));
+      .filter(route => route.lock || getRouteEnvironment(route) !== "surface")
+      .map((route, index) => ({ ...route, i: getRouteEnvironment(route) === "air" ? route.i : index }));
     this.generate(lockedRoutes, Math.random());
   }
 
@@ -214,6 +218,7 @@ class RoutesModule {
     this.connections = new Map();
     this.buildRiverEdges();
     lockedRoutes.forEach((route: Route) => {
+      if (getRouteEnvironment(route) === "air") return;
       this.addConnections(route.points.map(p => p[2]));
     });
 
@@ -749,7 +754,9 @@ class RoutesModule {
   buildLinks(routes: Route[]): Record<number, Record<number, number>> {
     const links: Record<number, Record<number, number>> = {};
 
-    for (const { points, i: routeId } of routes) {
+    for (const route of routes) {
+      if (getRouteEnvironment(route) === "air") continue;
+      const { points, i: routeId } = route;
       const cells = points.map(p => p[2]);
 
       for (let i = 0; i < cells.length - 1; i++) {
@@ -920,9 +927,15 @@ class RoutesModule {
     default: curveCatmullRom.alpha(0.1)
   };
 
-  getPath({ group, points, depth }: { group: string; points: number[][]; depth?: number }): string {
+  getPath(route: Pick<Route, "group" | "points" | "depth" | "environment">): string {
+    const { group, points } = route;
+    if (getRouteEnvironment(route) === "air") return getAirRoutePath(points);
     const lineGen = line();
-    const curve = depth === undefined ? this.ROUTE_CURVES[group] || this.ROUTE_CURVES.default : curveLinear;
+    const environment = getRouteEnvironment(route);
+    const curve =
+      environment === "underwater" || environment === "underground"
+        ? curveLinear
+        : this.ROUTE_CURVES[group] || this.ROUTE_CURVES.default;
     lineGen.curve(curve);
     const path = round(lineGen(points.map(p => [p[0], p[1]]))!, 1);
     return path;
@@ -943,6 +956,7 @@ class RoutesModule {
     this.connections = new Map();
     this.buildRiverEdges();
     for (const route of pack.routes) {
+      if (getRouteEnvironment(route) === "air") continue;
       for (let i = 0; i < route.points.length - 1; i++) {
         const cellId = route.points[i][2];
         const nextCellId = route.points[i + 1][2];

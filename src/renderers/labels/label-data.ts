@@ -1,3 +1,4 @@
+import { RealmData } from "@/components/realm-data";
 import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { AddedLabel } from "@/generators/added-labels";
 import type { Burg } from "@/generators/burgs-generator";
@@ -126,7 +127,8 @@ function buildRiverLabel(river: River, geometry: boolean): LabelData | undefined
 function buildRouteLabel(route: Route, geometry: boolean): LabelData | undefined {
   if (!route.name || !isUnderwaterVisible(route)) return undefined;
   const customPath = getCustomPath(route.label);
-  const defaultPath = geometry && !isPlainText(route.label) ? formatPathPoints(route.points) : undefined;
+  const points = route.environment === "air" ? RealmData.routePoints(route, pack) : route.points;
+  const defaultPath = geometry && !isPlainText(route.label) ? formatPathPoints(points) : undefined;
   return {
     ...route.label,
     id: `routeLabel${route.i}`,
@@ -134,7 +136,7 @@ function buildRouteLabel(route: Route, geometry: boolean): LabelData | undefined
     type: "route",
     text: route.label?.text ?? route.name,
     group: route.label?.group || "route",
-    anchor: getMiddlePoint(route.points),
+    anchor: getMiddlePoint(points),
     pathPoints: customPath ?? defaultPath
   };
 }
