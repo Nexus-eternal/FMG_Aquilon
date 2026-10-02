@@ -1,13 +1,15 @@
 import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
 import type { Route } from "@/generators/routes-generator";
+import type { Zone } from "@/generators/zones-generator";
 import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
 import type { RouteEndpoint } from "@/types/route-environment";
 import { getRouteEnvironment } from "@/types/route-environment";
 import { UnderwaterDomainRegistry, type UnderwaterDomainState } from "./underwater-domain";
 import { normalizeVerticalFilter, type VerticalCoordinates, type VerticalFilter } from "./vertical-coordinates";
+import { projectZoneCells } from "./zone-rules";
 
-export const REALM_DATA_VERSION = 3;
+export const REALM_DATA_VERSION = 4;
 
 export interface RealmScopedData {
   burgs: PackedGraph["burgs"];
@@ -30,6 +32,7 @@ export interface RealmDataState {
   realms: Record<string, RealmScopedData>;
   domains?: { underwater: UnderwaterDomainState };
   airRoutes?: Route[];
+  worldZones?: Zone[];
 }
 
 function clone<T>(value: T): T {
@@ -41,7 +44,7 @@ function capture(graph: PackedGraph, terrainGraph?: GridGraph, previous?: RealmS
     burgs: clone(graph.burgs),
     markers: clone(graph.markers),
     routes: clone(graph.routes.filter(route => getRouteEnvironment(route) !== "air")),
-    zones: clone(graph.zones),
+    zones: clone(graph.zones.filter(zone => !zone.worldCells)),
     addedLabels: clone(graph.addedLabels),
     cells: {
       burg: Array.from(graph.cells.burg),
@@ -61,7 +64,7 @@ function isRealmDataState(value: unknown): value is RealmDataState {
   if (!value || typeof value !== "object") return false;
   const state = value as { version?: unknown; activeRealmId?: unknown; realms?: unknown };
   return (
-    (state.version === 1 || state.version === 2 || state.version === REALM_DATA_VERSION) &&
+    (state.version === 1 || state.version === 2 || state.version === 3 || state.version === REALM_DATA_VERSION) &&
     typeof state.activeRealmId === "string" &&
     Boolean(state.realms) &&
     typeof state.realms === "object" &&
@@ -74,6 +77,26 @@ export class RealmDataRegistry {
   private activeRealmId = "surface";
   private realms = new Map<string, RealmScopedData>();
   private airRoutes: Route[] = [];
+  private worldZones: Zone[] = [];
+
+  promoteZone(zone: Zone, graph: PackedGraph): void {
+    if (zone.worldCells) return;
+    zone.worldCells = [...new Set(zone.cells.map(cell => graph.cells.g[cell]))];
+    zone.i = Math.max(
+      2000000,
+      ...graph.zones.map(zone => zone.i + 1),
+      ...this.worldZones.map(zone => zone.i + 1),
+      ...Array.from(this.realms.values()).flatMap(realm => realm.zones.map(zone => zone.i + 1))
+    );
+    delete zone.depth;
+    delete zone.altitude;
+    projectZoneCells(zone, graph);
+  }
+
+  projectWorldZones(graph: PackedGraph): void {
+    graph.zones = [...graph.zones.filter(zone => !zone.worldCells), ...this.worldZones];
+    for (const zone of this.worldZones) projectZoneCells(zone, graph);
+  }
 
   nextAirRouteId(graph: PackedGraph): number {
     let next = 1000000;
@@ -130,7 +153,8 @@ export class RealmDataRegistry {
       activeRealmId: this.activeRealmId,
       realms: Object.fromEntries(Array.from(this.realms, ([id, data]) => [id, clone(data)])),
       domains: { underwater: this.underwater.state },
-      airRoutes: clone(this.airRoutes)
+      airRoutes: clone(this.airRoutes),
+      worldZones: clone(this.worldZones.map(zone => ({ ...zone, cells: [] })))
     };
   }
 
@@ -147,7 +171,10 @@ export class RealmDataRegistry {
   save(id: string, graph: PackedGraph, terrainGraph?: GridGraph): void {
     if (!id) throw new Error("Realm id cannot be empty");
     this.realms.set(id, capture(graph, terrainGraph, this.realms.get(id)));
-    if (id === this.active) this.airRoutes = graph.routes.filter(route => getRouteEnvironment(route) === "air");
+    if (id === this.active) {
+      this.airRoutes = graph.routes.filter(route => getRouteEnvironment(route) === "air");
+      this.worldZones = graph.zones.filter(zone => zone.worldCells);
+    }
   }
 
   hasTerrain(id: string): boolean {
@@ -187,6 +214,7 @@ export class RealmDataRegistry {
     graph.cells.routes = clone(data.cells.routes);
     this.activeRealmId = id;
     this.projectAirRoutes(graph);
+    this.projectWorldZones(graph);
   }
 
   setActive(id: string): void {
@@ -198,6 +226,7 @@ export class RealmDataRegistry {
     this.underwater.reset();
     this.realms.clear();
     this.airRoutes = [];
+    this.worldZones = [];
     this.activeRealmId = activeRealmId;
   }
 
@@ -214,6 +243,7 @@ export class RealmDataRegistry {
 
     this.activeRealmId = value.activeRealmId;
     this.airRoutes = clone(value.airRoutes ?? []);
+    this.worldZones = clone(value.worldZones ?? []);
     for (const [id, data] of Object.entries(value.realms)) {
       if (!id || !data || typeof data !== "object") continue;
       this.realms.set(id, clone(data));

@@ -1,5 +1,6 @@
 import { max, mean } from "d3";
 import type { VerticalCoordinates } from "@/components/vertical-coordinates";
+import type { ZoneRules } from "@/types/zone-rules";
 import { gauss, getAdjective, P, ra, rand, rw } from "../utils";
 
 declare global {
@@ -14,6 +15,9 @@ export interface Zone extends VerticalCoordinates {
   color: string;
   hidden?: boolean;
   note?: string;
+  lock?: boolean;
+  rules?: ZoneRules;
+  worldCells?: number[];
 }
 
 type ZoneGenerator = (usedCells: Uint8Array) => void;
@@ -43,7 +47,7 @@ class ZonesModule {
   }
 
   regenerate(globalModifier = 1): void {
-    const underwater = pack.zones.filter(zone => zone.depth !== undefined);
+    const underwater = pack.zones.filter(zone => zone.depth !== undefined || zone.worldCells || zone.lock);
     this.generate(globalModifier);
     const occupiedIds = new Set(underwater.map(zone => zone.i));
     let nextId = 0;

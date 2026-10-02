@@ -1,4 +1,5 @@
 import polylabel from "polylabel";
+import type { GridGraph } from "@/types/GridGraph";
 import type { Point } from "@/types/global";
 import type { Vertices } from "../generators/voronoi";
 import type { PackedGraph } from "../types/PackedGraph";
@@ -199,7 +200,10 @@ type Isolines = Record<string, { polygons?: Point[][]; fill?: string; halo?: str
  * @param {object} packedGraph - The packed graph object containing cells and vertices.
  * @returns {string} SVG path data for the border of the shape.
  */
-export const getVertexPath = (cellsArray: number[], packedGraph: PackedGraph = {} as PackedGraph): string => {
+export const getVertexPath = (
+  cellsArray: number[],
+  packedGraph: PackedGraph | GridGraph = {} as PackedGraph
+): string => {
   const { cells, vertices } = packedGraph;
 
   const cellsObj = Object.fromEntries(cellsArray.map(cellId => [cellId, true]));
@@ -220,7 +224,7 @@ export const getVertexPath = (cellsArray: number[], packedGraph: PackedGraph = {
     if (onborderCell === undefined) continue;
 
     const feature = packedGraph.features[cells.f[onborderCell]];
-    if (feature.type === "lake" && feature.shoreline) {
+    if (feature?.type === "lake" && "shoreline" in feature && feature.shoreline) {
       if (feature.shoreline.every(ofSameType)) continue; // inner lake
     }
 

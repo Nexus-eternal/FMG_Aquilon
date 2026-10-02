@@ -209,6 +209,8 @@ async function generateSkyWorld(): Promise<void> {
     // scoped data replaces only the Realm-owned entities on the shared cell indices.
     if (RealmData.has(REALM_ID)) RealmData.activate(REALM_ID, pack);
     RealmData.setActive(REALM_ID);
+    RealmData.projectAirRoutes(pack);
+    RealmData.projectWorldZones(pack);
 
     const realmLayers = structuredClone(surfaceWorld.layers);
     realmLayers.active = [...new Set([...realmLayers.active, "routes", "markers", "lakes"])];
@@ -234,6 +236,7 @@ async function generateSkyWorld(): Promise<void> {
     if (surfaceWorld) applyWorld(surfaceWorld, "surface");
   } finally {
     generating = false;
+    updateSwitchButton();
   }
 }
 
@@ -252,6 +255,7 @@ function applyWorld(world: WorldContext, realmId: "surface" | "sky"): void {
   applyRealmTerrain(grid, world.terrain);
   globalThis.pack = world.pack;
   RealmData.projectAirRoutes(pack);
+  RealmData.projectWorldZones(pack);
   globalThis.options = world.options;
   Styles.set(world.styles);
   for (const route of pack.routes) {
@@ -330,6 +334,7 @@ function createSnapshot(sourceIds: readonly string[], excludeUnderwater = false)
     viewbox.append(layer);
   }
   clone.append(viewbox);
+  for (const zone of pack.zones) if (zone.worldCells) clone.querySelector(`#zone${zone.i}`)?.remove();
   for (const route of pack.routes) {
     if (route.environment !== "air") continue;
     for (const prefix of ["route", "routeHalo", "routePorts", "routeLabel"])

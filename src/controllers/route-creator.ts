@@ -16,6 +16,7 @@ import {
   type EditableRouteEnvironment,
   ensureEnvironmentRouteGroup
 } from "./route-environment-fields";
+import { showRouteZoneWarnings } from "./route-zone-warnings";
 
 let creatorPoints: number[][] = [];
 let placement: EditableRouteEnvironment = {};
@@ -160,6 +161,7 @@ function drawRoute(points: number[][]): void {
 
   const group = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect").value;
   setTempRoute({ group, points, ...placement });
+  showRouteZoneWarnings("routeCreatorBottom", { points, ...placement });
 }
 
 function completeCreation(): void {

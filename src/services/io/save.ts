@@ -54,7 +54,11 @@ async function save(write: Writer): Promise<void> {
 }
 
 function prepareMapData(): string {
-  if (RealmData.has(RealmData.active) || pack.routes.some(route => route.environment === "air"))
+  if (
+    RealmData.has(RealmData.active) ||
+    pack.routes.some(route => route.environment === "air") ||
+    pack.zones.some(zone => zone.worldCells)
+  )
     RealmData.save(RealmData.active, pack);
 
   const date = new Date();

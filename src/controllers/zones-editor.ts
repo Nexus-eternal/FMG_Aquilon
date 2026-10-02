@@ -1,4 +1,4 @@
-import { select, sum } from "d3";
+import { csvFormatRows, select, sum } from "d3";
 import { closeDialogs, confirmationDialog, destroyDialog, updateDialog } from "@/components/dialog/dialog-helpers";
 import { applyLineHighlighting } from "@/components/dialog/highlighting";
 import {
@@ -11,17 +11,20 @@ import {
 } from "@/components/dialog/table";
 import { Layers } from "@/components/layers";
 import { Notes } from "@/components/notes";
+import { RealmData } from "@/components/realm-data";
 import type { FillBoxElement } from "@/components/shared/fill-box";
 import { tip } from "@/components/tooltips";
 import { getPlacementDepth } from "@/components/underwater-native";
 import { validateUnderwaterPlacement } from "@/components/vertical-coordinates";
+import { paintWorldZone, zoneAppliesToRealm } from "@/components/zone-rules";
 import { Controllers } from "@/controllers";
 import type { Zone } from "@/generators/zones-generator";
 import { clearLegend, drawLegend, hasLegend } from "@/renderers/draw-legend";
 import { zonesFilter } from "@/renderers/draw-zones";
 import { fog, unfog } from "@/renderers/overlays/fogging";
 import { downloadFile, getArea, getAreaUnit, getFileName } from "@/utils";
-import { ensureEl, rn, si, unique } from "../utils";
+import { ensureEl, escapeHtml, rn, si, unique } from "../utils";
+import { editZoneRules } from "./zone-rules-fields";
 
 const dialogId = "zonesEditor" as const;
 const LEGEND_NAME = "Zones"; // the legend box this editor toggles
@@ -31,6 +34,7 @@ type ZoneRow = { zone: Zone; area: number; rural: number; urban: number; populat
 const columns: EditorColumn<ZoneRow>[] = [
   { key: "description", label: "Description", width: "13em", permanent: true },
   { key: "type", label: "Type", width: "7em" },
+  { key: "rules", label: "Hazard rules", width: "8em", permanent: true },
   { key: "depth", label: "Depth (m)", width: "7em" },
   { key: "cells", label: "Cells", width: "5em" },
   { key: "area", label: "Area", width: "7em" },
@@ -64,6 +68,7 @@ function renderDialog(): void {
   const editorHtml = /* html */ `<div id="zonesEditor" class="dialog stable editorDialog">
       ${renderEditorHeader({ dialogId, columns })}
       <div id="zonesBodySection" class="table" data-type="absolute"></div>
+      <div id="zonesRules" hidden style="padding:.6em;border-top:1px solid #888"></div>
       <div id="zonesFooter" class="totalLine">
         <div data-tip="Number of zones" style="margin-left: 5px">
           Zones:&nbsp;<span id="zonesFooterNumber">0</span>
@@ -129,7 +134,13 @@ function renderDialog(): void {
     const target = ev.target as HTMLElement;
     const fillBox = target.closest("fill-box");
     if (fillBox) changeFill(fillBox as FillBoxElement, zone);
-    else if (target.classList.contains("zonePopulation")) changePopulation(zone);
+    else if (target.classList.contains("zoneRules")) {
+      editZoneRules(zone, () => {
+        Layers.draw("zones");
+        zonesTable.refresh();
+      });
+      updateDialog(dialogId, { width: "fit-content", position });
+    } else if (target.classList.contains("zonePopulation")) changePopulation(zone);
     else if (target.classList.contains("icon-book")) void Controllers.NotesEditor.open({ type: "zone", id: zone.i });
     else if (target.classList.contains("zoneRemove")) zoneRemove(zone);
     else if (target.classList.contains("zoneHide")) toggleVisibility(zone);
@@ -220,14 +231,15 @@ function renderZonesPage(view: TableView<ZoneRow>): void {
     options.map.units.population.scale;
   const percentage = body.dataset.type === "percentage";
   const lines = view.rows.map(
-    ({ zone: { i, name, type, cells, color, hidden, depth }, area, rural, urban, population }) => {
+    ({ zone: { i, name, type, cells, color, hidden, depth, rules, worldCells }, area, rural, urban, population }) => {
       const populationTip = `Total population: ${si(population)}; Rural population: ${si(rural)}; Urban population: ${si(urban)}. Click to change`;
       const focused = select<SVGElement, unknown>("#deftemp").select(`#fog #focusZone${i}`).size();
 
       return /* html */ `<div class="states" data-id="${i}" style="${hidden ? "opacity: 0.5" : ""}">
-      <div data-col="description" style="display:flex; align-items:center"><fill-box fill="${color}"></fill-box><input data-tip="Zone description. Click and type to change" style="width: 11em" class="zoneName" value="${name}" autocorrect="off" spellcheck="false"></div>
-      <div data-col="type"><input data-tip="Zone type. Click and type to change" class="zoneType" value="${type}"></div>
-      <div data-col="depth"><input class="zoneDepth" type="number" min="0" step="100" style="width:6em" value="${depth ?? ""}" data-tip="Depth below sea level; blank means Surface" /></div>
+      <div data-col="description" style="display:flex; align-items:center"><fill-box fill="${color}"></fill-box><input data-tip="Zone description. Click and type to change" style="width: 11em" class="zoneName" value="${escapeHtml(name)}" autocorrect="off" spellcheck="false"></div>
+      <div data-col="type"><input data-tip="Zone type. Click and type to change" class="zoneType" value="${escapeHtml(type)}"></div>
+      <div data-col="rules"><button class="zoneRules" data-tip="Edit environments and advisory hazard rules">${rules ? (rules.enabled === false ? "Off" : rules.severity) : "Configure"}</button></div>
+      <div data-col="depth"><input class="zoneDepth" type="number" min="0" step="100" style="width:6em" value="${depth ?? ""}" ${worldCells ? "disabled" : ""} data-tip="Shared hazards use the Water depth range in Hazard rules" /></div>
       <div data-col="cells"><span data-tip="Cells count" class="icon-check-empty"></span><span data-tip="Cells count" class="stateCells">${percentage ? `${rn((cells.length / pack.cells.i.length) * 100, 2)}%` : cells.length}</span></div>
       <div data-col="area"><span data-tip="Zone area" class="icon-map-o" style="padding-right: 2px"></span><span data-tip="Zone area" class="biomeArea">${percentage ? `${rn((area / totalArea) * 100, 2)}%` : `${si(area)} ${getAreaUnit()}`}</span></div>
       <div data-col="population"><span data-tip="${populationTip}" class="icon-male"></span><span data-tip="${populationTip}" class="zonePopulation pointer">${percentage ? `${rn((population / totalPopulation) * 100, 2)}%` : si(population)}</span></div>
@@ -332,7 +344,10 @@ function applyZonePaint(zones: readonly Zone[], changes: ReadonlyMap<number, rea
     for (const cells of cellsByZone.values()) cells.delete(cell);
     for (const zoneId of zoneIds) cellsByZone.get(zoneId)?.add(cell);
   }
-  for (const zone of zones) zone.cells = [...cellsByZone.get(zone.i)!];
+  for (const zone of zones) {
+    if (zone.worldCells) paintWorldZone(zone, changes, pack);
+    else zone.cells = [...cellsByZone.get(zone.i)!];
+  }
 
   Layers.draw("zones");
   if (document.getElementById(dialogId)) zonesTable.refresh();
@@ -378,7 +393,9 @@ function toggleLegend(): void {
 
   const filterBy = zonesFilter.type;
   const isFiltered = filterBy !== "all";
-  const visibleZones = pack.zones.filter(zone => !zone.hidden && (!isFiltered || zone.type === filterBy));
+  const visibleZones = pack.zones.filter(
+    zone => !zone.hidden && zoneAppliesToRealm(zone, RealmData.active) && (!isFiltered || zone.type === filterBy)
+  );
   const data = visibleZones.map(({ i, name, color }) => [`zone${i}`, color, name]);
   if (!data.length) return void tip("No zones to show", false, "error");
   drawLegend(LEGEND_NAME, data);
@@ -404,11 +421,22 @@ function addZonesLayer(): void {
 function downloadZonesData(): void {
   const unit =
     options.map.units.area.unit === "square" ? `${options.map.units.distance.unit}2` : options.map.units.area.unit;
-  let data = `Id,Color,Description,Type,Cells,Area ${unit},Population\n`; // headers
-
-  for (const { zone, area, population } of getZonesData()) {
-    data += `${zone.i},${zone.color},${zone.name},${zone.type},${zone.cells.length},${area},${population}\n`;
-  }
+  const data = csvFormatRows([
+    ["Id", "Color", "Description", "Type", "Cells", `Area ${unit}`, "Population", "Hazard rules", "World grid cells"],
+    ...getZonesData().map(({ zone, area, population }) =>
+      [
+        zone.i,
+        zone.color,
+        zone.name,
+        zone.type,
+        zone.cells.length,
+        area,
+        population,
+        JSON.stringify(zone.rules ?? null),
+        JSON.stringify(zone.worldCells ?? null)
+      ].map(String)
+    )
+  ]);
 
   const name = `${getFileName("Zones")}.csv`;
   downloadFile(data, name);
@@ -516,6 +544,7 @@ function zoneRemove(zone: Zone): void {
     confirm: "Remove",
     onConfirm: () => {
       pack.zones = pack.zones.filter(z => z.i !== zone.i);
+      ensureEl("zonesRules").hidden = true;
       select<SVGGElement, unknown>("#zones").select(`#zone${zone.i}`).remove();
       unfog(`focusZone${zone.i}`);
       zonesTable.refresh();

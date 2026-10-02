@@ -48,6 +48,42 @@ beforeEach(() => {
 });
 
 describe("RealmDataRegistry", () => {
+  it("shares native zones with canonical grid footprints, preserves edits and deletion across a JSON round-trip", () => {
+    const surface = createGraph(),
+      sky = createGraph();
+    Object.assign(surface.cells, { i: [0, 1, 2], g: [8, 9, 10] });
+    Object.assign(sky.cells, { i: [0, 1, 2], g: [9, 10, 8] });
+    const zone = surface.zones[0];
+    registry.promoteZone(zone, surface);
+    zone.rules = {
+      environments: ["surface", "sky"],
+      severity: "high",
+      restricted: true,
+      requirements: [],
+      movement: 1
+    };
+    expect(zone.worldCells).toEqual([9]);
+    registry.save("surface", surface);
+    registry.save("sky", sky);
+    expect(registry.get("surface").zones).toEqual([]);
+    expect(registry.state.worldZones![0].cells).toEqual([]);
+    registry.setActive("sky");
+    registry.projectWorldZones(sky);
+    expect(sky.zones.at(-1)).toBe(zone);
+    expect(zone.cells).toEqual([0]);
+    zone.name = "Storm renamed in Sky";
+    registry.save("sky", sky);
+    const restored = new RealmDataRegistry();
+    restored.restore(JSON.parse(JSON.stringify(registry.state)));
+    restored.setActive("surface");
+    restored.projectWorldZones(surface);
+    expect(surface.zones[0].cells).toEqual([1]);
+    expect(surface.zones[0].name).toBe("Storm renamed in Sky");
+    surface.zones = [];
+    restored.save("surface", surface);
+    restored.projectWorldZones(sky);
+    expect(sky.zones.some(z => z.worldCells)).toBe(false);
+  });
   it("anchors endpoints by realm plus burg id and follows relocation", () => {
     const graph = createGraph();
     Object.assign(graph.burgs[1], { x: 12, y: 15 });

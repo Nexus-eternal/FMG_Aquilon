@@ -12,6 +12,7 @@ import { getRouteEnvironment } from "@/types/route-environment";
 import { speak } from "@/utils";
 import { ensureEl, findEl, getPointer, getSegmentId, rn } from "../utils";
 import { appendRouteEnvironmentFields } from "./route-environment-fields";
+import { showRouteZoneWarnings } from "./route-zone-warnings";
 
 let selectedRoute: Selection<SVGElement, unknown, HTMLElement, unknown>;
 
@@ -140,6 +141,7 @@ function updateRouteData(route: Route): void {
     });
 
   updateRouteLength(route);
+  showRouteZoneWarnings("routeBody", { ...route, points: RealmData.routePoints(route, pack) });
 
   const isWaterRoute = route.points.some(([_x, _y, cellId]) => pack.cells.h[cellId] < 20);
   ensureEl("routeElevationProfile").style.display = isWaterRoute ? "none" : "inline-block";
@@ -229,6 +231,7 @@ function redrawRoute(route: Route): void {
   pack.cells.routes = Routes.buildLinks(pack.routes);
   redrawRouteShape(route);
   updateRouteLength(route);
+  showRouteZoneWarnings("routeBody", { ...route, points: RealmData.routePoints(route, pack) });
   if (findEl("elevationProfile")) showRouteElevationProfile();
   Layers.draw("labels");
 }
