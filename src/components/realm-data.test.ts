@@ -48,6 +48,33 @@ beforeEach(() => {
 });
 
 describe("RealmDataRegistry", () => {
+  it("serializes Underwater as a domain, without creating another Realm or terrain", () => {
+    registry.save("surface", createGraph(), createTerrainGraph());
+    registry.underwater.upsert(
+      { i: 3, kind: "marker", name: "Deep ruin", depth: 700, cells: [0] },
+      createTerrainGraph()
+    );
+    registry.underwater.setFilter({ enabled: true, min: 300, max: 900 });
+    registry.save("sky", createGraph(), createTerrainGraph());
+    registry.setActive("sky");
+    const restored = new RealmDataRegistry();
+    restored.restore(JSON.parse(JSON.stringify(registry.state)));
+    expect(restored.underwater.state).toEqual(registry.underwater.state);
+    expect(restored.has("underwater")).toBe(false);
+    expect(restored.state.domains?.underwater).not.toHaveProperty("terrain");
+    expect(restored.active).toBe("sky");
+  });
+
+  it("clears domains on reset and loading an old map without domains", () => {
+    const entity = { i: 0, kind: "marker" as const, name: "Deep ruin", depth: 0, cells: [0] };
+    registry.underwater.upsert(entity, createTerrainGraph());
+    registry.reset();
+    expect(registry.underwater.state.entities).toEqual([]);
+    registry.underwater.upsert(entity, createTerrainGraph());
+    registry.restore({ version: 1, activeRealmId: "surface", realms: {} });
+    expect(registry.underwater.state.entities).toEqual([]);
+  });
+
   it("captures editable entities without retaining live references", () => {
     const graph = createGraph();
     registry.save("sky", graph);

@@ -1,4 +1,5 @@
 import { Layers } from "@/components/layers";
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Route } from "@/generators/routes-generator";
 import {
   boundsIntersect,
@@ -62,14 +63,14 @@ export function setEditedRoute(routeId: number | null): void {
 }
 
 const TEMP_ID = "routeTemp";
-export function setTempRoute(route: { group: string; points: number[][] } | null): void {
+export function setTempRoute(route: { group: string; points: number[][]; depth?: number } | null): void {
   tempRoute = route && route.points.length > 1 ? buildShape({ ...route, i: -1 } as Route, TEMP_ID) : null;
   layer.render();
 }
 
 function buildShape(route: Route, id = `route${route.i}`): RouteShape | null {
   const { group, points } = route;
-  if (!points || points.length < 2) return null;
+  if (!points || points.length < 2 || !isUnderwaterVisible(route)) return null;
 
   let x0 = Infinity;
   let y0 = Infinity;

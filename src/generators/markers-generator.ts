@@ -93,8 +93,8 @@ class MarkersModule {
   }
 
   regenerate() {
-    pack.markers = pack.markers.filter(({ lock, cell }) => {
-      if (!lock) return false;
+    pack.markers = pack.markers.filter(({ lock, cell, depth }) => {
+      if (!lock && depth === undefined) return false;
       this.occupied[cell] = true;
       return true;
     });

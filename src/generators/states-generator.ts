@@ -25,6 +25,8 @@ declare global {
 }
 
 export interface State {
+  environment?: "surface" | "underwater";
+  environmentSubtype?: string;
   i: number;
   name: string;
   expansionism: number;
@@ -134,7 +136,7 @@ class StatesModule {
     }
 
     const sortedBurgs = validBurgs
-      .filter(burg => !lockedStateIds.includes(burg.state ?? 0))
+      .filter(burg => burg.depth === undefined && !lockedStateIds.includes(burg.state ?? 0))
       .map((burg): [typeof burg, number] => [burg, (burg.population ?? 0) * Math.random()])
       .sort((a, b) => b[1] - a[1])
       .map(([burg]) => burg);
@@ -156,6 +158,9 @@ class StatesModule {
 
     for (const cellId of pack.cells.i) {
       pack.cells.state[cellId] = lockedStateIds.indexOf(pack.cells.state[cellId]) + 1;
+    }
+    for (const burg of validBurgs) {
+      if (burg.depth !== undefined) burg.state = lockedStateIds.indexOf(burg.state ?? 0) + 1;
     }
 
     for (let stateId = newStates.length; stateId < count; stateId++) {
@@ -293,7 +298,7 @@ class StatesModule {
     // remove state from all cells except of locked
     for (const cellId of cells.i) {
       const state = states[cells.state[cellId]];
-      if (state.lock) continue;
+      if (state.lock || cells.h[cellId] < 20) continue;
       cells.state[cellId] = 0;
     }
 
@@ -302,6 +307,7 @@ class StatesModule {
 
       const capitalCell = burgs[state.capital].cell;
       cells.state[capitalCell] = state.i;
+      if (state.environment === "underwater") continue;
       const cultureCenter = cultures[state.culture].center!;
       const b = cells.biome[cultureCenter]; // state native biome
       queue.push({ e: state.center, p: 0, s: state.i, b }, 0);
@@ -341,7 +347,7 @@ class StatesModule {
     burgs
       .filter(b => b.i && !b.removed)
       .forEach(b => {
-        b.state = cells.state[b.cell]; // assign state to burgs
+        if (b.depth === undefined) b.state = cells.state[b.cell]; // underwater ownership is explicit
       });
     TIME && console.timeEnd("expandStates");
   }
@@ -388,11 +394,11 @@ class StatesModule {
     });
 
     for (const i of cells.i) {
-      if (cells.h[i] < 20) continue;
+      if (cells.h[i] < 20 && !cells.state[i]) continue;
       const s = cells.state[i];
 
       cells.c[i]
-        .filter(c => cells.h[c] >= 20 && cells.state[c] !== s)
+        .filter(c => (cells.h[c] >= 20 || cells.state[c]) && cells.state[c] !== s)
         .forEach(c => {
           stateNeighbors[s].add(cells.state[c]);
         });
@@ -437,17 +443,18 @@ class StatesModule {
     });
 
     for (const i of cells.i) {
-      if (cells.h[i] < 20) continue;
+      if (cells.h[i] < 20 && !cells.state[i]) continue;
       const s = cells.state[i];
 
       // collect stats
       states[s].cells! += 1;
       states[s].area! += cells.area[i];
       states[s].rural! += cells.pop[i];
-      if (cells.burg[i]) {
-        states[s].urban! += pack.burgs[cells.burg[i]].population!;
-        states[s].burgs!++;
-      }
+    }
+    for (const burg of pack.burgs) {
+      if (!burg.i || burg.removed || !states[burg.state ?? 0] || states[burg.state ?? 0].removed) continue;
+      states[burg.state ?? 0].urban! += burg.population ?? 0;
+      states[burg.state ?? 0].burgs!++;
     }
   }
 

@@ -1,6 +1,7 @@
 import { applyRealmTerrain, captureRealmTerrain, type RealmTerrainData } from "@/components/realm-terrain";
 import type { GridGraph } from "@/types/GridGraph";
 import type { PackedGraph } from "@/types/PackedGraph";
+import { UnderwaterDomainRegistry, type UnderwaterDomainState } from "./underwater-domain";
 import { normalizeVerticalFilter, type VerticalCoordinates, type VerticalFilter } from "./vertical-coordinates";
 
 export const REALM_DATA_VERSION = 2;
@@ -24,6 +25,7 @@ export interface RealmDataState {
   version: typeof REALM_DATA_VERSION;
   activeRealmId: string;
   realms: Record<string, RealmScopedData>;
+  domains?: { underwater: UnderwaterDomainState };
 }
 
 function clone<T>(value: T): T {
@@ -64,6 +66,7 @@ function isRealmDataState(value: unknown): value is RealmDataState {
 }
 
 export class RealmDataRegistry {
+  readonly underwater = new UnderwaterDomainRegistry();
   private activeRealmId = "surface";
   private realms = new Map<string, RealmScopedData>();
 
@@ -75,7 +78,8 @@ export class RealmDataRegistry {
     return {
       version: REALM_DATA_VERSION,
       activeRealmId: this.activeRealmId,
-      realms: Object.fromEntries(Array.from(this.realms, ([id, data]) => [id, clone(data)]))
+      realms: Object.fromEntries(Array.from(this.realms, ([id, data]) => [id, clone(data)])),
+      domains: { underwater: this.underwater.state }
     };
   }
 
@@ -138,13 +142,21 @@ export class RealmDataRegistry {
   }
 
   reset(activeRealmId = "surface"): void {
+    this.underwater.reset();
     this.realms.clear();
     this.activeRealmId = activeRealmId;
   }
 
   restore(value: unknown): void {
+    if (!isRealmDataState(value)) {
+      this.reset();
+      return;
+    }
+
+    const underwater = new UnderwaterDomainRegistry();
+    if (value.domains?.underwater) underwater.restore(value.domains.underwater);
     this.reset();
-    if (!isRealmDataState(value)) return;
+    this.underwater.restore(underwater.state);
 
     this.activeRealmId = value.activeRealmId;
     for (const [id, data] of Object.entries(value.realms)) {

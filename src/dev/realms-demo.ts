@@ -130,6 +130,20 @@ export function installRealmsDemo(): void {
   );
 
   showDemoControls();
+  window.addEventListener("underwater:focus", () => {
+    if (activeWorld !== "surface") return;
+    cloudDensity = 0;
+    groundVisibility = 1;
+    for (const [id, value] of [
+      ["realmDemoCloudDensity", 0],
+      ["realmDemoGroundVisibility", 1]
+    ] as const) {
+      const input = document.getElementById(id) as HTMLInputElement;
+      input.value = String(value);
+      input.parentElement!.querySelector("output")!.value = `${value * 100}%`;
+    }
+    redrawClouds();
+  });
   const viewbox = document.getElementById("viewbox");
   if (viewbox) new MutationObserver(drawVerticalFilter).observe(viewbox, { childList: true, subtree: true });
   window.addEventListener("map:generated", () => window.setTimeout(() => void onMapGenerated()));
@@ -242,6 +256,7 @@ function applyWorld(world: WorldContext, realmId: "surface" | "sky"): void {
   Layers.restore(world.layers);
   writeStyles();
   Layers.drawAll();
+  window.dispatchEvent(new Event("realm:changed"));
   syncOptionInputs();
   fitMapToScreen();
 }
@@ -270,14 +285,15 @@ function updateSurfaceBackdrop(): void {
       return (
         id !== SURFACE_BACKDROP_ID &&
         id !== SURFACE_ATMOSPHERE_ID &&
+        id !== "underwaterObjects" &&
         !(REALM_LAYER_IDS as readonly string[]).includes(id)
       );
     })
     .map(layer => layer.elementId);
-  snapshots.set(SURFACE_BACKDROP_ID, createSnapshot(sourceIds));
+  snapshots.set(SURFACE_BACKDROP_ID, createSnapshot(sourceIds, true));
 }
 
-function createSnapshot(sourceIds: readonly string[]): string {
+function createSnapshot(sourceIds: readonly string[], excludeUnderwater = false): string {
   const source = document.querySelector<SVGSVGElement>("#map");
   if (!source) throw new Error("Map SVG is missing");
   const clone = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -301,6 +317,23 @@ function createSnapshot(sourceIds: readonly string[]): string {
     viewbox.append(layer);
   }
   clone.append(viewbox);
+
+  // The Surface backdrop is a view from above, not a second rendering of deep-sea objects.
+  if (excludeUnderwater) {
+    const remove = (id: string) => clone.querySelector(`#${CSS.escape(id)}`)?.remove();
+    for (const burg of pack.burgs) {
+      if (burg.depth === undefined) continue;
+      for (const prefix of ["burg", "anchor", "burgLabel"]) remove(`${prefix}${burg.i}`);
+      clone.querySelector(`#burgEmblems use[data-i="${burg.i}"]`)?.remove();
+    }
+    for (const route of pack.routes) {
+      if (route.depth === undefined) continue;
+      remove(`route${route.i}`);
+      remove(`routeLabel${route.i}`);
+    }
+    for (const marker of pack.markers) if (marker.depth !== undefined) remove(`marker${marker.i}`);
+    for (const zone of pack.zones) if (zone.depth !== undefined) remove(`zone${zone.i}`);
+  }
 
   const xml = new XMLSerializer().serializeToString(clone);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;

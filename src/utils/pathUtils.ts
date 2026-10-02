@@ -338,7 +338,7 @@ export const findPath = (
   start: number,
   isExit: (id: number, current?: number) => boolean,
   getCost: (current: number, next: number) => number,
-  packedGraph: PackedGraph = {} as PackedGraph
+  packedGraph: { cells: Pick<PackedGraph["cells"], "c"> } = {} as PackedGraph
 ): number[] | null => {
   if (isExit(start)) return null;
 

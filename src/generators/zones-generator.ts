@@ -43,7 +43,15 @@ class ZonesModule {
   }
 
   regenerate(globalModifier = 1): void {
+    const underwater = pack.zones.filter(zone => zone.depth !== undefined);
     this.generate(globalModifier);
+    const occupiedIds = new Set(underwater.map(zone => zone.i));
+    let nextId = 0;
+    for (const zone of pack.zones) {
+      while (occupiedIds.has(nextId)) nextId++;
+      zone.i = nextId++;
+    }
+    pack.zones.unshift(...underwater);
   }
 
   generate(globalModifier = 1) {

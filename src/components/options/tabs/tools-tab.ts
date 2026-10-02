@@ -165,6 +165,11 @@ const TEMPLATE = /* html */ `
     </button>
   </div>
   <div class="separator">Add</div>
+  <div style="margin:4px 0" data-tip="Environment for the existing Burg, Route, Marker, Zone and State creation tools">
+    <label for="toolsEnvironment">Environment:</label>
+    <select id="toolsEnvironment"><option value="surface">Surface</option><option value="underwater">Underwater</option></select>
+    <label for="toolsDepth">Depth (m):</label><input id="toolsDepth" type="number" min="0" step="100" value="500" style="width:6em" disabled />
+  </div>
   <div id="addFeature" class="grid">
     <button
       id="addBurgTool"

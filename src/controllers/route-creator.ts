@@ -3,13 +3,16 @@ import { closeDialogs, destroyDialog } from "@/components/dialog/dialog-helpers"
 import { Layers } from "@/components/layers";
 import { stopMapPlacement } from "@/components/map-placement";
 import { clearMainTip, tip } from "@/components/tooltips";
+import { getPlacementDepth, validateWaterRoute } from "@/components/underwater-native";
 import { applyDefaultViewboxEvents } from "@/components/viewbox-events";
 import { Controllers } from "@/controllers";
+import { appendDepthFields } from "@/controllers/vertical-fields";
 import type { Route } from "@/generators/routes-generator";
 import { setTempRoute } from "@/renderers/draw-routes";
 import { ensureEl, getPointer, rn } from "../utils";
 
 let creatorPoints: number[][] = [];
+let placement: { depth?: number } = {};
 
 let isCellsLayerForced = false; // the cells layer is turned on for the editing mode
 
@@ -28,7 +31,9 @@ function open(defaultGroup?: string): void {
   select<SVGElement, unknown>("#viewbox").style("cursor", "crosshair").on("click", onClick);
 
   creatorPoints = [];
+  placement = { depth: getPlacementDepth() };
   renderDialog();
+  appendDepthFields("routeCreatorBottom", placement, () => creatorPoints.map(p => p[2]));
 
   // update route groups
   ensureEl("routeCreatorGroupSelect").innerHTML = select("#routes")
@@ -83,6 +88,12 @@ function onClick(this: any, event: any): void {
   const [x, y] = getPointer(event, this);
   const cellId = Pack.findCell(x, y);
   const point = [rn(x, 2), rn(y, 2), cellId!];
+  try {
+    if (placement.depth !== undefined) validateWaterRoute([...creatorPoints, point], placement.depth);
+  } catch (error) {
+    tip((error as Error).message, false, "error");
+    return;
+  }
   creatorPoints.push(point);
 
   drawRoute(creatorPoints);
@@ -123,7 +134,7 @@ function drawRoute(points: number[][]): void {
     .attr("r", 0.6);
 
   const group = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect").value;
-  setTempRoute({ group, points });
+  setTempRoute({ group, points, depth: placement.depth });
 }
 
 function completeCreation(): void {
@@ -136,7 +147,13 @@ function completeCreation(): void {
   const routeId = Routes.getNextId();
   const group = ensureEl<HTMLSelectElement>("routeCreatorGroupSelect").value;
   const feature = pack.cells.f[points[0][2]];
-  const route = { points, group, feature, i: routeId } as Route;
+  try {
+    if (placement.depth !== undefined) validateWaterRoute(points, placement.depth);
+  } catch (error) {
+    tip((error as Error).message, false, "error");
+    return;
+  }
+  const route = { points, group, feature, i: routeId, depth: placement.depth } as Route;
   pack.routes.push(route);
 
   const links = pack.cells.routes;

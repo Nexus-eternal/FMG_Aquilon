@@ -1,3 +1,4 @@
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { AddedLabel } from "@/generators/added-labels";
 import type { Burg } from "@/generators/burgs-generator";
 import type { Label, LabelType } from "@/generators/labels-generator";
@@ -48,7 +49,7 @@ function collect<T extends { i: number }>(
 }
 
 function buildBurgLabel(burg: Burg): LabelData | undefined {
-  if (burg.removed) return undefined;
+  if (burg.removed || !isUnderwaterVisible(burg)) return undefined;
   return {
     ...burg.label,
     id: `burgLabel${burg.i}`,
@@ -123,7 +124,7 @@ function buildRiverLabel(river: River, geometry: boolean): LabelData | undefined
 }
 
 function buildRouteLabel(route: Route, geometry: boolean): LabelData | undefined {
-  if (!route.name) return undefined;
+  if (!route.name || !isUnderwaterVisible(route)) return undefined;
   const customPath = getCustomPath(route.label);
   const defaultPath = geometry && !isPlainText(route.label) ? formatPathPoints(route.points) : undefined;
   return {

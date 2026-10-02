@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PackedGraph } from "@/types/PackedGraph";
 
 describe("StatesModule.collectTaxes", () => {
   let StatesModule: any;
@@ -34,6 +35,23 @@ describe("StatesModule.collectTaxes", () => {
     // Reload module fresh
     await import("./states-generator");
     StatesModule = (globalThis as any).States;
+  });
+
+  it("counts underwater burg population by its explicit state, not the water cell owner", () => {
+    globalThis.pack = {
+      states: [{ i: 0 }, { i: 1 }, { i: 2, environment: "underwater" }],
+      cells: { i: [0, 1, 2], h: [30, 5, 5], state: [1, 0, 2], area: [10, 20, 30], pop: [5, 0, 0] },
+      burgs: [
+        { i: 0 },
+        { i: 1, cell: 0, state: 1, population: 100 },
+        { i: 2, cell: 1, state: 1, depth: 500, population: 200 },
+        { i: 3, cell: 2, state: 2, depth: 1000, population: 300 }
+      ]
+    } as unknown as PackedGraph;
+    States.collectStatistics();
+    expect(pack.states[1]).toMatchObject({ burgs: 2, urban: 300, area: 10, rural: 5 });
+    expect(pack.states[2]).toMatchObject({ burgs: 1, urban: 300, area: 30 });
+    expect(pack.burgs[2].state).toBe(1);
   });
 
   it("credits sales-tax deal.tax to the seller's state and adds poll tax", () => {

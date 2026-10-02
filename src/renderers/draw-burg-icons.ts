@@ -1,4 +1,5 @@
 import { Layers } from "@/components/layers";
+import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Burg } from "@/generators/burgs-generator";
 import { ViewportLayers, type ViewportRenderContext } from "@/renderers/viewport/viewport-renderer";
 import { escapeHtml } from "@/utils/stringUtils";
@@ -16,7 +17,7 @@ function reconcileBurgIcons({ root, bounds }: ViewportRenderContext): void {
 
   const burgsByGroup = new Map<string, Burg[]>();
   for (const burg of pack.burgs) {
-    if (!burg.i || burg.removed || !burg.group) continue;
+    if (!burg.i || burg.removed || !burg.group || !isUnderwaterVisible(burg)) continue;
     const group = burgsByGroup.get(burg.group);
     if (group) group.push(burg);
     else burgsByGroup.set(burg.group, [burg]);

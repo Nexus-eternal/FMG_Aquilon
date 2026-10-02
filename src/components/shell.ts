@@ -4,6 +4,7 @@ import { Layers } from "@/components/layers";
 import { Pins } from "@/components/pins";
 import { showDataTip } from "@/components/tooltips";
 import { Controllers } from "@/controllers";
+import { installUnderwaterControls } from "@/controllers/underwater-controls";
 import { Services } from "@/services";
 import { isElectron, isLocalhost } from "@/services/platform";
 import { ensureEl, findEl } from "@/utils";
@@ -12,6 +13,7 @@ import { fitMapToScreen } from "./canvas";
 /** Wire the window up: the svg layer scaffold and the browser-level behaviours around it. Called by boot() */
 export function initShell(): void {
   Layers.init(); // create the svg layer groups the renderers draw into
+  installUnderwaterControls();
   if (import.meta.env.DEV && new URLSearchParams(location.search).get("realmDemo") === "1") {
     void import("@/dev/realms-demo").then(({ installRealmsDemo }) => installRealmsDemo());
   }
