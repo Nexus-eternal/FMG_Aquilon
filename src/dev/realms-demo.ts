@@ -251,8 +251,21 @@ function applyWorld(world: WorldContext, realmId: "surface" | "sky"): void {
   RealmData.setActive(realmId);
   applyRealmTerrain(grid, world.terrain);
   globalThis.pack = world.pack;
+  RealmData.projectAirRoutes(pack);
   globalThis.options = world.options;
   Styles.set(world.styles);
+  for (const route of pack.routes) {
+    if (route.environment !== "air" || styles.routes.groups[route.group]) continue;
+    const attrs = structuredClone(styles.routes.groups.roads.attrs);
+    Object.assign(attrs, {
+      stroke: "#725ba4",
+      "stroke-width": 0.7,
+      "stroke-dasharray": "3 2",
+      "stroke-linecap": "round",
+      opacity: 0.85
+    });
+    styles.routes.groups[route.group] = { attrs };
+  }
   Layers.restore(world.layers);
   writeStyles();
   Layers.drawAll();
@@ -317,6 +330,11 @@ function createSnapshot(sourceIds: readonly string[], excludeUnderwater = false)
     viewbox.append(layer);
   }
   clone.append(viewbox);
+  for (const route of pack.routes) {
+    if (route.environment !== "air") continue;
+    for (const prefix of ["route", "routeHalo", "routePorts", "routeLabel"])
+      clone.querySelector(`#${prefix}${route.i}`)?.remove();
+  }
 
   // The Surface backdrop is a view from above, not a second rendering of deep-sea objects.
   if (excludeUnderwater) {
@@ -327,7 +345,7 @@ function createSnapshot(sourceIds: readonly string[], excludeUnderwater = false)
       clone.querySelector(`#burgEmblems use[data-i="${burg.i}"]`)?.remove();
     }
     for (const route of pack.routes) {
-      if (route.depth === undefined) continue;
+      if (route.depth === undefined || route.environment === "underground") continue;
       remove(`route${route.i}`);
       remove(`routeLabel${route.i}`);
     }

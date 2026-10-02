@@ -48,6 +48,62 @@ beforeEach(() => {
 });
 
 describe("RealmDataRegistry", () => {
+  it("anchors endpoints by realm plus burg id and follows relocation", () => {
+    const graph = createGraph();
+    Object.assign(graph.burgs[1], { x: 12, y: 15 });
+    registry.save("sky", graph);
+    Object.assign(graph.burgs[1], { x: 80, y: 90 });
+    const air = {
+      ...graph.routes[0],
+      environment: "air" as const,
+      endpoints: [
+        { realm: "surface", burg: 1 },
+        { realm: "sky", burg: 1 }
+      ] as [{ realm: string; burg: number }, { realm: string; burg: number }]
+    };
+    expect(registry.routePoints(air, graph).map(p => p.slice(0, 2))).toEqual([
+      [80, 90],
+      [12, 15]
+    ]);
+    graph.burgs[1].removed = true;
+    expect(registry.routePoints(air, graph)[0]).toEqual(air.points[0]);
+  });
+
+  it("stores air routes once and projects live native objects into both realms", () => {
+    const surface = createGraph();
+    const sky = createGraph();
+    const air = {
+      ...structuredClone(surface.routes[0]),
+      i: 1000000,
+      environment: "air" as const,
+      endpoints: [
+        { realm: "surface", burg: 1 },
+        { realm: "sky", burg: 1 }
+      ] as [{ realm: string; burg: number }, { realm: string; burg: number }]
+    };
+    surface.routes.push(air);
+    registry.save("surface", surface);
+    registry.save("sky", sky);
+    expect(registry.get("surface").routes).toHaveLength(1);
+    expect(registry.state.airRoutes).toHaveLength(1);
+    registry.setActive("sky");
+    registry.projectAirRoutes(sky);
+    expect(sky.routes.at(-1)).toBe(air);
+    sky.routes.at(-1)!.name = "Edited in Sky";
+    registry.save("sky", sky);
+    registry.setActive("surface");
+    registry.projectAirRoutes(surface);
+    expect(surface.routes.at(-1)!.name).toBe("Edited in Sky");
+    const restored = new RealmDataRegistry();
+    restored.restore(JSON.parse(JSON.stringify(registry.state)));
+    restored.projectAirRoutes(surface);
+    expect(surface.routes.at(-1)!.endpoints).toEqual(air.endpoints);
+    surface.routes = surface.routes.filter(route => route.i !== air.i);
+    restored.save("surface", surface);
+    restored.projectAirRoutes(sky);
+    expect(sky.routes.some(route => route.i === air.i)).toBe(false);
+  });
+
   it("serializes Underwater as a domain, without creating another Realm or terrain", () => {
     registry.save("surface", createGraph(), createTerrainGraph());
     registry.underwater.upsert(

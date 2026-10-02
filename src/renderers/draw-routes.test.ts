@@ -58,6 +58,19 @@ test("routes are materialized into their own group and culled on panning", () =>
   expect(getPath).toHaveBeenCalledTimes(3);
 });
 
+test("new air groups render a bounded arc with non-interactive halo and terminals", () => {
+  pack.routes = [{ ...route(1000000, 10, "airroutes"), environment: "air" }];
+  drawRoutes();
+  expect(document.querySelector("#airroutes > #route1000000")?.getAttribute("d")).toContain("Q");
+  expect(document.getElementById("routeHalo1000000")?.getAttribute("pointer-events")).toBe("none");
+  expect(document.getElementById("routePorts1000000")).not.toBeNull();
+  drawRoutes();
+  expect(document.querySelectorAll("#airroutes path")).toHaveLength(3);
+  pack.routes = [];
+  drawRoutes();
+  expect(document.querySelectorAll("#airroutes path")).toHaveLength(0);
+});
+
 test("the edited route stays rendered off-screen and follows a group change", () => {
   drawRoutes();
   setEditedRoute(2);

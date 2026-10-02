@@ -16,6 +16,7 @@ import { Controllers } from "@/controllers";
 import { type Route, UNNAMED_ROUTE } from "@/generators/routes-generator";
 import { getRouteBox } from "@/renderers/draw-routes";
 import { highlightArea } from "@/renderers/overlays/highlight";
+import { getRouteEnvironment, ROUTE_ENVIRONMENTS } from "@/types/route-environment";
 import { downloadFile, getFileName } from "@/utils";
 import { ensureEl, rn } from "../utils";
 
@@ -38,6 +39,13 @@ const columns: EditorColumn<Route>[] = [
     label: "Group",
     width: "7em",
     sortBy: route => route.group || "",
+    sortType: "alpha"
+  },
+  {
+    key: "environment",
+    label: "Environment",
+    width: "11em",
+    sortBy: route => getRouteEnvironment(route),
     sortType: "alpha"
   },
   {
@@ -66,7 +74,11 @@ function getFilteredRoutes(): Route[] {
   return routes.filter((route: Route) => {
     const name = (route.name || "").toLowerCase();
     const group = (route.group || "").toLowerCase();
-    return name.includes(searchText) || group.includes(searchText);
+    return (
+      name.includes(searchText) ||
+      group.includes(searchText) ||
+      ROUTE_ENVIRONMENTS[getRouteEnvironment(route)].toLowerCase().includes(searchText)
+    );
   });
 }
 
@@ -99,7 +111,7 @@ function renderDialog(): void {
   const html = /* html */ `<div id="routesOverview" class="dialog stable editorDialog">
     <div id="routesBody" class="table">${renderEditorHeader({ dialogId, columns })}</div>
     <div id="routesFilters" class="editorFilters">
-      <label for="routesSearch" data-tip="Filter by name or group">Search: <input id="routesSearch" type="search" /></label>
+      <label for="routesSearch" data-tip="Filter by name, group or environment">Search: <input id="routesSearch" type="search" /></label>
     </div>
     <div id="routesFooter" class="totalLine">
       <div data-tip="Routes number" style="margin-left: 4px">Routes:&nbsp;<span id="routesFooterNumber">0</span></div>
@@ -167,6 +179,7 @@ function renderRoutesPage(view: TableView<Route>): void {
         <span data-tip="Locate the route" class="icon-target" data-col="locate"></span>
         <div data-tip="Route name" data-col="name">${route.name}</div>
         <div data-tip="Route group" data-col="group">${route.group}</div>
+        <div data-col="environment">${ROUTE_ENVIRONMENTS[getRouteEnvironment(route)]}</div>
         <div data-tip="Route length" data-col="length">${length}</div>
         <span data-col="edit" data-tip="Edit route" class="icon-pencil"></span>
         <span data-col="lock" class="locks pointer ${
@@ -221,13 +234,13 @@ function zoomToRoute(this: HTMLElement): void {
 }
 
 function downloadRoutesData(): void {
-  let data = "Id,Route,Group,Length\n"; // headers
+  let data = "Id,Route,Group,Environment,Length\n"; // headers
 
   // export the full sorted+filtered set (all pages), not the DOM (which only holds the current page)
   const exported = routesTable.view().all;
   exported.forEach((route: Route) => {
     const length = `${rn((route.length || 0) * options.map.units.distance.scale)} ${options.map.units.distance.unit}`;
-    data += `${[route.i, route.name, route.group, length].join(",")}\n`;
+    data += `${[route.i, route.name, route.group, getRouteEnvironment(route), length].join(",")}\n`;
   });
 
   const name = `${getFileName("Routes")}.csv`;

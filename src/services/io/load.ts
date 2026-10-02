@@ -364,6 +364,7 @@ async function parseLoadedData(data: string[], mapVersion: string | null): Promi
     pack.relief = data[49] ? JSON.parse(data[49]) : [];
     pack.journeys = data[52] ? JSON.parse(data[52]) : [];
     RealmData.restore(data[53] ? JSON.parse(data[53]) : undefined);
+    RealmData.projectAirRoutes(pack);
 
     if (data[31]) {
       const namesDL = data[31].split("/");

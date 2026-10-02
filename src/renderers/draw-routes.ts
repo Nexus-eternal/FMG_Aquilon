@@ -1,4 +1,5 @@
 import { Layers } from "@/components/layers";
+import { RealmData } from "@/components/realm-data";
 import { isUnderwaterVisible } from "@/components/underwater-native";
 import type { Route } from "@/generators/routes-generator";
 import {
@@ -7,6 +8,8 @@ import {
   ViewportLayers,
   type ViewportRenderContext
 } from "@/renderers/viewport/viewport-renderer";
+import { getRouteEnvironment } from "@/types/route-environment";
+import { getAirRoutePath } from "@/utils/airRouteUtils";
 
 interface RouteShape {
   id: string;
@@ -16,6 +19,8 @@ interface RouteShape {
   y0: number;
   x1: number;
   y1: number;
+  air: boolean;
+  ports: string;
 }
 
 const scene = new Scene<RouteShape>();
@@ -63,13 +68,17 @@ export function setEditedRoute(routeId: number | null): void {
 }
 
 const TEMP_ID = "routeTemp";
-export function setTempRoute(route: { group: string; points: number[][]; depth?: number } | null): void {
+export function setTempRoute(
+  route: Pick<Route, "group" | "points" | "depth" | "altitude" | "environment" | "endpoints"> | null
+): void {
   tempRoute = route && route.points.length > 1 ? buildShape({ ...route, i: -1 } as Route, TEMP_ID) : null;
   layer.render();
 }
 
 function buildShape(route: Route, id = `route${route.i}`): RouteShape | null {
-  const { group, points } = route;
+  const { group } = route;
+  const air = getRouteEnvironment(route) === "air";
+  const points = air ? RealmData.routePoints(route, pack) : route.points;
   if (!points || points.length < 2 || !isUnderwaterVisible(route)) return null;
 
   let x0 = Infinity;
@@ -83,11 +92,17 @@ function buildShape(route: Route, id = `route${route.i}`): RouteShape | null {
     if (y > y1) y1 = y;
   }
 
-  const padding = styles.routes.groups[group]?.attrs["stroke-width"] ?? 1;
+  const padding = (styles.routes.groups[group]?.attrs["stroke-width"] ?? 1) + (air ? 40 : 0);
   return {
     id,
     group,
-    path: Routes.getPath(route),
+    path: air ? getAirRoutePath(points) : Routes.getPath(route),
+    air,
+    ports: air
+      ? [points[0], points.at(-1)!]
+          .map(([x, y]) => `M${x - 1.6},${y}a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0`)
+          .join("")
+      : "",
     x0: x0 - padding,
     y0: y0 - padding,
     x1: x1 + padding,
@@ -113,11 +128,27 @@ function reconcileRoutes({ root, bounds }: ViewportRenderContext): void {
   }
   if (tempRoute && root === document) show(tempRoute);
 
+  for (const id of visibleByGroup.keys()) {
+    if (Array.from(container.children).some(child => child.id === id)) continue;
+    const group = container.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.id = id;
+    group.dataset.group = id;
+    const attrs = styles.routes.groups[id]?.attrs ?? styles.routes.groups.roads.attrs;
+    for (const [name, value] of Object.entries(attrs))
+      if (value !== null && value !== undefined) group.setAttribute(name, String(value));
+    container.appendChild(group);
+  }
+
   for (const group of Array.from(container.querySelectorAll<SVGGElement>(":scope > g"))) {
     // custom groups from loaded maps miss the data-group the layer registry stamps on declared ones
     group.dataset.group = group.id;
     const shapes = visibleByGroup.get(group.id) ?? [];
     const shapeIds = new Set(shapes.map(shape => shape.id));
+    for (const shape of shapes)
+      if (shape.air) {
+        shapeIds.add(shape.id.replace("route", "routeHalo"));
+        shapeIds.add(shape.id.replace("route", "routePorts"));
+      }
 
     const elements = new Map<string, Element>();
     for (const child of Array.from(group.children)) {
@@ -126,6 +157,32 @@ function reconcileRoutes({ root, bounds }: ViewportRenderContext): void {
     }
 
     for (const shape of shapes) {
+      if (shape.air) {
+        for (const [prefix, geometry] of [
+          ["routeHalo", shape.path],
+          ["routePorts", shape.ports]
+        ]) {
+          const id = shape.id.replace("route", prefix);
+          let decoration = elements.get(id);
+          if (!decoration) {
+            decoration = container.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path");
+            decoration.id = id;
+            decoration.setAttribute("pointer-events", "none");
+            group.appendChild(decoration);
+          }
+          decoration.setAttribute("d", geometry);
+          decoration.setAttribute("stroke-dasharray", "none");
+          decoration.setAttribute("stroke", prefix === "routeHalo" ? "#fff" : "inherit");
+          decoration.setAttribute(
+            "stroke-width",
+            prefix === "routeHalo"
+              ? String((styles.routes.groups[shape.group]?.attrs["stroke-width"] ?? 0.7) + 1)
+              : "0.5"
+          );
+          decoration.setAttribute("opacity", prefix === "routeHalo" ? "0.45" : "0.9");
+          decoration.setAttribute("fill", prefix === "routeHalo" ? "none" : "#fff");
+        }
+      }
       let element = elements.get(shape.id);
       if (!element) {
         element = container.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -134,6 +191,7 @@ function reconcileRoutes({ root, bounds }: ViewportRenderContext): void {
       }
       if (rendered.get(element) !== shape) {
         element.setAttribute("d", shape.path);
+        element.setAttribute("data-environment", shape.air ? "air" : "other");
         rendered.set(element, shape);
       }
     }

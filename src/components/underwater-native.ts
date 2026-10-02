@@ -5,6 +5,7 @@ import {
   validateUnderwaterPlacement
 } from "@/components/vertical-coordinates";
 import type { PackedGraph } from "@/types/PackedGraph";
+import type { RouteEnvironment } from "@/types/route-environment";
 
 export const underwaterTools = { enabled: false, depth: 500 };
 
@@ -12,8 +13,8 @@ export function getPlacementDepth(): number | undefined {
   return RealmData.active === "surface" && underwaterTools.enabled ? underwaterTools.depth : undefined;
 }
 
-export function isUnderwater(object: VerticalCoordinates): boolean {
-  return object.depth !== undefined;
+export function isUnderwater(object: VerticalCoordinates & { environment?: RouteEnvironment }): boolean {
+  return object.depth !== undefined && (!object.environment || object.environment === "underwater");
 }
 
 export function validateBurgCell(graph: PackedGraph, cell: number, depth?: number, burgId?: number): void {
@@ -25,7 +26,7 @@ export function validateBurgCell(graph: PackedGraph, cell: number, depth?: numbe
 }
 
 export function isUnderwaterVisible(
-  object: VerticalCoordinates & { cell?: number; cells?: number[]; points?: number[][] }
+  object: VerticalCoordinates & { environment?: RouteEnvironment; cell?: number; cells?: number[]; points?: number[][] }
 ): boolean {
   if (!isUnderwater(object)) return true;
   if (RealmData.active !== "surface" || !isInVerticalRange(object.depth!, RealmData.underwater.state.filter))
